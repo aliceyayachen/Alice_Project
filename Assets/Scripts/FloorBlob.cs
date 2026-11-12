@@ -7,6 +7,8 @@ public class FloorBlob : MonoBehaviour
     [SerializeField, Min(0f)] private float pushSpeed = 2f;
     [SerializeField, Min(0.01f)] private float pushDistance = 0.9f;
     [SerializeField, Min(0f)] private float edgePadding = 0.4f;
+    [SerializeField] private Transform calibrationCenter;
+    [SerializeField] private float sidewaysTrackingMultiplier = 1f;
 
     private Vector3 direction = new Vector3(1f, 0f, 0.35f).normalized;
     private float speed;
@@ -27,7 +29,17 @@ public class FloorBlob : MonoBehaviour
 
         foreach (GameObject player in GameObject.FindGameObjectsWithTag("Player"))
         {
-            Vector3 offset = position - player.transform.position;
+            
+            Vector3 playerPosition = player.transform.position;
+
+            if (calibrationCenter != null)
+            {
+                float centerZ = calibrationCenter.position.z;
+                playerPosition.z = centerZ
+                    + (playerPosition.z - centerZ) * sidewaysTrackingMultiplier;
+            }
+
+Vector3 offset = position - playerPosition;
             offset.y = 0f; // Compare positions on the floor, ignoring height.
 
             if (offset.sqrMagnitude >= nearestDistance) continue;
