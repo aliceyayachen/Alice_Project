@@ -1,0 +1,5 @@
+Put EBGaramond-Regular.ttf in this folder.
+
+Get it from https://fonts.google.com/specimen/EB+Garamond -> "Get font" -> "Download all".
+In the zip, the file is in the "static" folder: static/EBGaramond-Regular.ttf
+(If you only have EBGaramond-VariableFont_wght.ttf, that works too - put it here instead.)
