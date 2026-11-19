@@ -34,7 +34,7 @@ public class FloorCalibrator : MonoBehaviour
     [Tooltip("Counts as still while the tracked position stays within this distance (floor units).")]
     [SerializeField, Min(0.01f)] private float stillRadius = 0.08f;
     [Tooltip("After a dot is taken, you must move at least this far before the next one can be taken.")]
-    [SerializeField, Min(0f)] private float moveOnDistance = 0.4f;
+    [SerializeField, Min(0f)] private float moveOnDistance = 0.15f;
 
     [Header("Look")]
     [SerializeField, Min(0.05f)] private float dotSize = 0.35f;
@@ -67,6 +67,7 @@ public class FloorCalibrator : MonoBehaviour
     private int holdCount;
     private float holdTimer;
     private Vector2? lastCapture;
+    private bool hasMovedOn; // once you've left the previous dot, stay "moved on" for this dot
     private FloorCalibration result;
     private float floorY;
     private TextMesh floorText;
@@ -137,7 +138,9 @@ public class FloorCalibrator : MonoBehaviour
         recent.Add((now, tracked.Value));
         while (recent.Count > 0 && now - recent[0].time > 0.5f) recent.RemoveAt(0);
 
-        bool movedOn = !lastCapture.HasValue || Vector2.Distance(tracked.Value, lastCapture.Value) > moveOnDistance;
+        if (!hasMovedOn && (!lastCapture.HasValue || Vector2.Distance(tracked.Value, lastCapture.Value) > moveOnDistance))
+            hasMovedOn = true;
+        bool movedOn = hasMovedOn;
         bool still = IsStill();
         string extra = peopleSeen > 1 ? " (" + peopleSeen + " people seen: only one person should be in view!)" : "";
 
@@ -174,6 +177,7 @@ public class FloorCalibrator : MonoBehaviour
     {
         captured.Add(trackedPosition);
         lastCapture = trackedPosition;
+        hasMovedOn = false;
         SetColor(dots[currentDot], doneColor);
         Debug.Log("FloorCalibrator: dot " + (currentDot + 1) + " taken (tracked " + trackedPosition.ToString("F2") + ")", this);
         currentDot++;
