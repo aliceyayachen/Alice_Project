@@ -41,6 +41,13 @@ public class FloorCalibrator : MonoBehaviour
     [SerializeField] private Color dotColor = new Color(1f, 0.95f, 0.54f);
     [SerializeField] private Color doneColor = new Color(0.35f, 0.33f, 0.2f);
 
+    [Header("Text on the floor")]
+    [Tooltip("Short instructions next to the dot, on the floor projection. The floor camera is used to make the text read the right way up; leave empty to find the camera showing Display 2.")]
+    [SerializeField] private bool showFloorText = true;
+    [SerializeField] private Camera floorCamera;
+    [Tooltip("Height of the letters on the floor (floor units).")]
+    [SerializeField, Min(0.05f)] private float floorTextSize = 0.22f;
+
     [Header("Saving")]
     [SerializeField] private string fileName = FloorCalibration.DefaultFileName;
 
@@ -62,6 +69,9 @@ public class FloorCalibrator : MonoBehaviour
     private Vector2? lastCapture;
     private FloorCalibration result;
     private float floorY;
+    private TextMesh floorText;
+    private string floorMessage = "";
+    private Vector2 floorMessageAt;
 
     private void Start()
     {
@@ -92,6 +102,7 @@ public class FloorCalibrator : MonoBehaviour
         checkDot = MakeDisc("CheckDot", Vector2.zero, dotSize * 0.5f, new Color(0.4f, 0.9f, 1f));
         checkDot.SetActive(false);
 
+        if (showFloorText) MakeFloorText();
         Restart();
     }
 
@@ -107,12 +118,19 @@ public class FloorCalibrator : MonoBehaviour
         {
             checkDot.SetActive(tracked.HasValue);
             if (tracked.HasValue) Place(checkDot, result.Map(tracked.Value), 0.006f);
+            FloorMessage("done  avg " + Cm(averageError) + "  worst " + Cm(worstError), new Vector2(floor.bounds.center.x, floor.bounds.center.z));
             status = "Done. Average error " + Cm(averageError) + ", worst " + Cm(worstError) +
                      ". Walk around: the small blue dot should stay under your feet. (R = calibrate again)";
             return;
         }
 
-        if (!tracked.HasValue) { status = "Dot " + (currentDot + 1) + "/" + targets.Count + ": no person seen yet."; ResetHold(); return; }
+        if (!tracked.HasValue)
+        {
+            status = "Dot " + (currentDot + 1) + "/" + targets.Count + ": no person seen yet.";
+            FloorMessage(DotLabel() + "  can't see you");
+            ResetHold();
+            return;
+        }
 
         // Remember the last moment or so, to tell whether the person is standing still.
         float now = Time.time;
@@ -128,11 +146,13 @@ public class FloorCalibrator : MonoBehaviour
         if (!movedOn)
         {
             status = "Dot " + (currentDot + 1) + "/" + targets.Count + ": walk to the new dot." + extra;
+            FloorMessage(DotLabel() + "  walk here" + (peopleSeen > 1 ? "  (2+ people!)" : ""));
             ResetHold();
         }
         else if (!still)
         {
             status = "Dot " + (currentDot + 1) + "/" + targets.Count + ": stand on the dot and hold still." + extra;
+            FloorMessage(DotLabel() + "  stand still" + (peopleSeen > 1 ? "  (2+ people!)" : ""));
             ResetHold();
         }
         else
@@ -141,6 +161,7 @@ public class FloorCalibrator : MonoBehaviour
             holdSum += tracked.Value;
             holdCount++;
             status = "Dot " + (currentDot + 1) + "/" + targets.Count + ": hold still..." + extra;
+            FloorMessage(DotLabel() + "  hold still " + Mathf.CeilToInt(Mathf.Max(0f, holdTime - holdTimer)));
             if (holdTimer >= holdTime) Capture(holdSum / holdCount);
         }
 
@@ -170,6 +191,7 @@ public class FloorCalibrator : MonoBehaviour
         if (c == null)
         {
             status = "Couldn't work out a calibration from these points. Press R to try again.";
+            FloorMessage("couldn't calibrate - press R", new Vector2(floor.bounds.center.x, floor.bounds.center.z));
             Debug.LogError("FloorCalibrator: " + status, this);
             return;
         }
@@ -339,6 +361,56 @@ public class FloorCalibrator : MonoBehaviour
     }
 
     private static string Cm(float metres) => Mathf.RoundToInt(metres * 100f) + " cm";
+
+    private string DotLabel() => (currentDot + 1) + "/" + targets.Count;
+
+    // Short message on the floor, next to the current dot (or at a given spot).
+    private void FloorMessage(string message, Vector2? at = null)
+    {
+        floorMessage = message;
+        floorMessageAt = at ?? (currentDot < targets.Count ? targets[currentDot] : floorMessageAt);
+        if (floorText == null) return;
+        floorText.text = message;
+
+        // Put it just "below" the dot as seen by the floor camera, reading the right way up.
+        Vector3 up = FloorUp();
+        Vector3 spot = new Vector3(floorMessageAt.x, floorY + 0.01f, floorMessageAt.y);
+        if (!at.HasValue) spot -= up * (dotSize * 0.8f + floorTextSize);
+        floorText.transform.position = spot;
+        floorText.transform.rotation = Quaternion.LookRotation(Vector3.down, up);
+    }
+
+    // Which way is "up" on the projected floor image.
+    private Vector3 FloorUp()
+    {
+        Camera cam = floorCamera;
+        if (cam == null)
+        {
+            foreach (Camera c in Camera.allCameras)
+                if (c.targetDisplay == 1) { cam = c; break; } // Display 2
+            floorCamera = cam;
+        }
+        Vector3 up = cam != null ? Vector3.ProjectOnPlane(cam.transform.up, Vector3.up) : Vector3.forward;
+        return up.sqrMagnitude > 1e-4f ? up.normalized : Vector3.forward;
+    }
+
+    private void MakeFloorText()
+    {
+        GameObject g = new GameObject("FloorText");
+        g.transform.SetParent(transform, true);
+        floorText = g.AddComponent<TextMesh>();
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font != null)
+        {
+            floorText.font = font;
+            g.GetComponent<MeshRenderer>().material = font.material;
+        }
+        floorText.fontSize = 64;
+        floorText.characterSize = floorTextSize / 6.4f;
+        floorText.anchor = TextAnchor.MiddleCenter;
+        floorText.alignment = TextAlignment.Center;
+        floorText.color = dotColor;
+    }
 
     // Big instructions on the main display, so you can read them from the floor.
     private void OnGUI()
