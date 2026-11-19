@@ -14,11 +14,11 @@ using UnityEngine;
 /// What it does:
 ///   - Runs a tiny local connection point at ws://localhost:8787/book that the book connects to.
 ///   - About 30 times a second, sends each page zone's Proximity (0-1) to the book.
-///   - When a blob arrives in a page zone, tells the book "this page: arrived",
+///   - When any blob arrives in a page zone, tells the book "this page: arrived",
 ///     plus where along the page the blob came in (so the light enters at that spot).
 ///   - Shows in the Inspector whether the book is connected and what each page is doing.
 ///
-/// It only READS the PageDestination zones and the blob. It doesn't change them.
+/// It only READS the PageDestination zones and the blobs. It doesn't change them.
 /// Everything stays on this computer (localhost); nothing goes to the internet.
 /// </summary>
 public class WallBookBridge : MonoBehaviour
@@ -27,8 +27,7 @@ public class WallBookBridge : MonoBehaviour
     [SerializeField] private PageDestination leftZone;
     [SerializeField] private PageDestination rightZone;
 
-    [Header("Blob (used for where the light enters the page; leave empty to find FloorBlob)")]
-    [SerializeField] private Transform blob;
+    [Header("Where the light enters the page")]
     [Tooltip("If on, the light enters the page at the point matching where the blob entered the zone. If off, it enters at the page's middle.")]
     [SerializeField] private bool useBlobEntryPoint = true;
 
@@ -63,11 +62,6 @@ public class WallBookBridge : MonoBehaviour
 
     private void OnEnable()
     {
-        if (blob == null)
-        {
-            FloorBlob found = FindAnyObjectByType<FloorBlob>();
-            if (found != null) blob = found.transform;
-        }
         if (leftZone == null || rightZone == null)
             Debug.LogWarning("WallBookBridge: assign both Left Zone and Right Zone.", this);
 
@@ -118,6 +112,7 @@ public class WallBookBridge : MonoBehaviour
     private void SendArrival(PageDestination zone, string page)
     {
         float entry = 0.5f;
+        Transform blob = zone.LastArrivedBlob; // whichever blob just arrived
         if (useBlobEntryPoint && blob != null)
         {
             // Position across the zone's width (its local Z). Facing the wall, +Z is the left side,

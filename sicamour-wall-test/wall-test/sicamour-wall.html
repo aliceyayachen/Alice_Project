@@ -75,6 +75,10 @@ const inkRGB=()=>tone().ink;
 const LAG=.13; // dissolve + yellow words trail the yellow wave by this fraction of the page (about two rows)
 const T={p:.42,s0:.42,sd:1.5,r0:2.1,rd:1.6,hold:10,cd:1.9};
 T.s1=T.s0+T.sd;T.r1=T.r0+T.rd;T.c0=T.r1+T.hold;T.end=T.c0+T.cd;
+// A lit page waits, sentence highlighted, until the OTHER page is lit too; then the collator flickers,
+// both pages hold, and both cover together. PAIR_WAIT = seconds a lone page may wait (0 = wait forever).
+const PAIR_WAIT=60;
+const waitC0=()=>PAIR_WAIT>0?T.r1+PAIR_WAIT:1e7;
 
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 const hit=document.createElement('canvas').getContext('2d');
@@ -581,9 +585,11 @@ function move(e){M.x=e.clientX;M.y=e.clientY;if(!M.in&&B.vis<.05){B.x=M.x;B.y=M.
 function arrive(i,x){
   const pg=pages[i];if(!ready||!pg||pg.st)return false;
   const ex=lerp(pg.x0+24,pg.x1-24,x==null?.5:cl(+x||0)),by=G.botY(ex);
-  pg.st={c0:T.c0,t0:performance.now()/1000,from:{x:ex,y:Math.min(H+20,by+G.bh*.28)},to:{x:ex,y:by}};
+  pg.st={c0:waitC0(),t0:performance.now()/1000,from:{x:ex,y:Math.min(H+20,by+G.bh*.28)},to:{x:ex,y:by}};
   sendState(true);return true;
 }
+// While a page is absorbing a blob, keep the preview words it was already showing lit
+// until the rising yellow wave has passed them, so the hint grows straight into the reveal.
 const keepPreview=(pg,t)=>!!pg.st&&t-pg.st.t0<T.s1+.15;
 // Page state for Unity: idle / revealing / holding / covering.
 function pageState(pg,t){const s=pg.st;if(!s)return'idle';const tau=t-s.t0;return tau<T.r1?'revealing':tau<s.c0?'holding':'covering'}
@@ -596,7 +602,7 @@ addEventListener('pointerdown',e=>{
   for(const pg of pages){
     if(pg.st||!hit.isPointInPath(pg.path,e.clientX,e.clientY))continue;
     const x=cl(e.clientX,pg.x0+24,pg.x1-24);
-    pg.st={c0:T.c0,t0:performance.now()/1000,from:{x:B.x,y:B.y},to:{x,y:G.botY(x)}};
+    pg.st={c0:waitC0(),t0:performance.now()/1000,from:{x:B.x,y:B.y},to:{x,y:G.botY(x)}};
   }
 });
 document.addEventListener('pointerleave',()=>{M.in=false});

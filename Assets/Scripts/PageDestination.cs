@@ -1,16 +1,21 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
 /// One floor zone in front of the wall, linked to one page of the book.
 /// Think of it as the page's footprint along the base of the wall:
-/// the blob arrives when it enters ANYWHERE inside this rectangle.
+/// a blob arrives when it enters ANYWHERE inside this rectangle.
 ///
 /// Size and position come from this object's Transform (use a Cube mesh):
 ///   Position = centre of the zone, Scale X = depth (from the wall edge), Scale Z = width along the wall.
-/// It only READS the blob's position (FloorBlob is not changed) and works out:
-///   Proximity: 0 when the blob is farther than Preview Distance from the zone,
+///
+/// Works with SEVERAL blobs. It only READS their positions (FloorBlob is not changed) and works out:
+///   Proximity: from the NEAREST blob. 0 when it is farther than Preview Distance from the zone,
 ///              rising to 1 at the zone's edge (and inside it).
-///   Arrival:   the moment the blob enters the zone (optionally after Dwell Time).
+///   Arrival:   the moment any blob enters the zone (optionally after Dwell Time).
+///              Each blob has its own arrival / re-arm, so blobs don't interfere with each other.
+///   Claim:     while one blob is being absorbed into this page, it "claims" the page,
+///              so other blobs can't be absorbed into it at the same time (they bounce off instead).
 /// </summary>
 public class PageDestination : MonoBehaviour
 {
@@ -19,46 +24,78 @@ public class PageDestination : MonoBehaviour
     [Header("Which page this zone belongs to")]
     [SerializeField] private Page page = Page.Left;
 
-    [Header("Blob to watch (leave empty to find the first FloorBlob)")]
-    [SerializeField] private Transform blob;
+    [Header("Blobs to watch (leave empty to find every FloorBlob)")]
+    [SerializeField] private Transform[] blobs;
 
     [Header("Distances (floor units, measured flat)")]
-    [Tooltip("Proximity starts rising when the blob is this close to the zone's edge.")]
+    [Tooltip("Proximity starts rising when a blob is this close to the zone's edge.")]
     [SerializeField, Min(0.01f)] private float previewDistance = 2f;
-    [Tooltip("After arriving, the blob must move this far outside the zone before it can arrive again.")]
+    [Tooltip("After arriving, a blob must move this far outside the zone before it can arrive again.")]
     [SerializeField, Min(0f)] private float rearmDistance = 0.5f;
-    [Tooltip("Seconds the blob must stay inside the zone. 0 = arrive immediately.")]
+    [Tooltip("Seconds a blob must stay inside the zone. 0 = arrive immediately.")]
     [SerializeField, Min(0f)] private float dwellTime = 0f;
 
-    [Header("Zone look")]
+    [Header("Zone look (only if its Mesh Renderer is switched on)")]
     [SerializeField] private Color idleColor = new Color(0.25f, 0.24f, 0.12f);
     [SerializeField] private Color activeColor = new Color(1f, 0.949f, 0.541f); // #FFF28A
 
     [Header("Live readout (watch these in Play Mode)")]
+    [SerializeField] private int blobsWatched;
     [SerializeField] private float distanceToZone;
     [SerializeField, Range(0f, 1f)] private float proximity;
     [SerializeField] private bool blobInside;
     [SerializeField] private int arrivalCount;
+    [SerializeField] private string claimedBy = "";
 
     // Read by WallBookBridge and BlobAbsorber.
     public Page PageSide => page;
     public float Proximity => proximity;
+    /// <summary>Distance from the zone to the NEAREST blob.</summary>
     public float DistanceToZone => distanceToZone;
-    public bool ArrivedThisFrame { get; private set; }
+    /// <summary>True if any blob arrived this frame.</summary>
+    public bool ArrivedThisFrame => arrivedThisFrame.Count > 0;
+    /// <summary>The blob that arrived most recently (used for where the light enters the page).</summary>
+    public Transform LastArrivedBlob { get; private set; }
+    /// <summary>Did this particular blob arrive this frame?</summary>
+    public bool ArrivedThisFrameBy(Transform blob) => arrivedThisFrame.Contains(blob);
 
-    private bool armed = true;
-    private float insideTimer;
+    /// <summary>The blob currently being absorbed into this page, or null.</summary>
+    public Transform Claimer { get; private set; }
+    /// <summary>A blob claims the page while it's absorbed. Returns false if another blob already has it.</summary>
+    public bool TryClaim(Transform blob)
+    {
+        if (Claimer != null && Claimer != blob) return false;
+        Claimer = blob;
+        claimedBy = blob != null ? blob.name : "";
+        return true;
+    }
+    public void Release(Transform blob)
+    {
+        if (Claimer != blob) return;
+        Claimer = null;
+        claimedBy = "";
+    }
+
+    private readonly HashSet<Transform> arrivedThisFrame = new HashSet<Transform>();
+    private bool[] armed;
+    private float[] insideTimer;
     private Material zoneMaterial;
 
     private void Awake()
     {
-        if (blob == null)
+        if (blobs == null || blobs.Length == 0)
         {
-            FloorBlob found = FindFirstObjectByType<FloorBlob>();
-            if (found != null) blob = found.transform;
+            FloorBlob[] found = FindObjectsByType<FloorBlob>();
+            blobs = new Transform[found.Length];
+            for (int i = 0; i < found.Length; i++) blobs[i] = found[i].transform;
         }
-        if (blob == null)
-            Debug.LogWarning(name + ": no blob assigned or found.", this);
+        if (blobs.Length == 0)
+            Debug.LogWarning(name + ": no blobs assigned or found.", this);
+
+        armed = new bool[blobs.Length];
+        insideTimer = new float[blobs.Length];
+        for (int i = 0; i < armed.Length; i++) armed[i] = true;
+        blobsWatched = blobs.Length;
 
         // Separate material copy so each zone can glow on its own.
         Renderer zoneRenderer = GetComponent<Renderer>();
@@ -67,36 +104,50 @@ public class PageDestination : MonoBehaviour
 
     private void Update()
     {
-        ArrivedThisFrame = false;
-        if (blob == null) return;
+        arrivedThisFrame.Clear();
+        if (Claimer != null && !Claimer.gameObject.activeInHierarchy) Release(Claimer);
 
-        distanceToZone = DistanceTo(blob.position);
+        float nearest = float.MaxValue;
+        bool anyInside = false;
+
+        for (int i = 0; i < blobs.Length; i++)
+        {
+            Transform blob = blobs[i];
+            if (blob == null || !blob.gameObject.activeInHierarchy) continue;
+
+            float distance = DistanceTo(blob.position);
+            nearest = Mathf.Min(nearest, distance);
+            bool inside = distance <= 0f;
+            anyInside |= inside;
+
+            // Ready to arrive again once this blob has moved away from the zone.
+            if (!armed[i] && distance > rearmDistance) armed[i] = true;
+
+            if (inside && armed[i])
+            {
+                insideTimer[i] += Time.deltaTime;
+                if (insideTimer[i] >= dwellTime)
+                {
+                    armed[i] = false;
+                    insideTimer[i] = 0f;
+                    arrivalCount++;
+                    arrivedThisFrame.Add(blob);
+                    LastArrivedBlob = blob;
+                    Debug.Log(page + " page: " + blob.name + " arrived (" + arrivalCount + ")", this);
+                }
+            }
+            else
+            {
+                insideTimer[i] = 0f;
+            }
+        }
+
+        distanceToZone = nearest == float.MaxValue ? 999f : nearest;
+        blobInside = anyInside;
 
         // 1 at the zone's edge (or inside), fading to 0 at Preview Distance, eased.
         float t = 1f - Mathf.Clamp01(distanceToZone / previewDistance);
         proximity = t * t * (3f - 2f * t);
-
-        blobInside = distanceToZone <= 0f;
-
-        // Ready to arrive again once the blob has moved away from the zone.
-        if (!armed && distanceToZone > rearmDistance) armed = true;
-
-        if (blobInside && armed)
-        {
-            insideTimer += Time.deltaTime;
-            if (insideTimer >= dwellTime)
-            {
-                armed = false;
-                insideTimer = 0f;
-                arrivalCount++;
-                ArrivedThisFrame = true;
-                Debug.Log(page + " page: blob arrived (" + arrivalCount + ")", this);
-            }
-        }
-        else
-        {
-            insideTimer = 0f;
-        }
 
         if (zoneMaterial != null)
             zoneMaterial.color = Color.Lerp(idleColor, activeColor, proximity);

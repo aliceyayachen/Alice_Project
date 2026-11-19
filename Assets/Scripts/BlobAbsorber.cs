@@ -9,8 +9,12 @@ using UnityEngine;
 ///                (stronger the closer it is). Only pages that are free (idle) pull.
 ///   2. Absorb:   when the blob arrives, it slides into the strip and shrinks away,
 ///                at the same moment the light rises into that page on the wall.
-///   3. Return:   it stays hidden until that page has fully finished its sequence,
-///                then grows back on the far side of the floor and drifts again.
+///   3. Return:   with Return Right Away ON, it comes back after Respawn Delay as a "new" blob,
+///                so the same number of blobs are always floating around.
+///                With it OFF, it stays hidden until that page has fully finished, then comes back.
+///
+/// Works with several blobs: put one BlobAbsorber on each blob. A page takes one blob at a time;
+/// another blob that reaches a busy page just bounces off the wall edge as usual.
 ///
 /// FloorBlob itself is not edited: this script just switches it off while the blob
 /// is being absorbed or is hidden, and back on when the blob returns.
@@ -42,6 +46,10 @@ public class BlobAbsorber : MonoBehaviour
     [SerializeField, Min(0f)] private float returnSpread = 1.5f;
     [Tooltip("Only used without a Return Point: how far in from the far edge (opposite the wall) the blob reappears.")]
     [SerializeField, Min(0f)] private float returnInset = 1f;
+    [Tooltip("ON: the blob comes back soon after being absorbed, so the floor always has the same number of blobs. OFF: it waits until its page has fully finished.")]
+    [SerializeField] private bool returnRightAway = true;
+    [Tooltip("With Return Right Away: seconds after being absorbed before the blob grows back in.")]
+    [SerializeField, Min(0f)] private float respawnDelay = 1.5f;
     [Tooltip("Seconds for the blob to grow back in.")]
     [SerializeField, Min(0.05f)] private float reappearTime = 0.8f;
     [Tooltip("If the book isn't connected, wait this long before the blob returns.")]
@@ -51,14 +59,13 @@ public class BlobAbsorber : MonoBehaviour
     [SerializeField] private string status = "free";
 
     private FloorBlob floorBlob;
-    private Renderer[] renderers;
     private Vector3 baseScale;
     private bool busy;
+    private PageDestination claimedZone;
 
     private void Awake()
     {
         floorBlob = GetComponent<FloorBlob>();
-        renderers = GetComponentsInChildren<Renderer>();
         baseScale = transform.localScale;
 
         if (zones == null || zones.Length == 0)
@@ -73,6 +80,7 @@ public class BlobAbsorber : MonoBehaviour
     {
         // If this is switched off mid-absorb, put the blob back to normal.
         StopAllCoroutines();
+        ReleaseClaim();
         if (busy)
         {
             transform.localScale = baseScale;
@@ -92,8 +100,10 @@ public class BlobAbsorber : MonoBehaviour
     }
 
     // A page can take the blob if the book says it's idle, or if we don't know (no book / no report yet).
+    // Another blob being absorbed into this page also makes it busy.
     private bool PageIsFree(PageDestination zone)
     {
+        if (zone.Claimer != null && zone.Claimer != transform) return false;
         if (!StateKnown(zone)) return true;
         return bridge.StateOf(zone.PageSide) == "idle";
     }
@@ -107,8 +117,9 @@ public class BlobAbsorber : MonoBehaviour
         // Arrival at a free page: absorb.
         foreach (PageDestination zone in zones)
         {
-            if (zone != null && zone.ArrivedThisFrame && PageIsFree(zone))
+            if (zone != null && zone.ArrivedThisFrameBy(transform) && PageIsFree(zone) && zone.TryClaim(transform))
             {
+                claimedZone = zone;
                 StartCoroutine(Absorb(zone));
                 return;
             }
@@ -121,9 +132,10 @@ public class BlobAbsorber : MonoBehaviour
         foreach (PageDestination zone in zones)
         {
             if (zone == null || !PageIsFree(zone)) continue;
-            if (zone.DistanceToZone < nearestDistance)
+            float distance = zone.DistanceTo(transform.position);
+            if (distance < nearestDistance)
             {
-                nearestDistance = zone.DistanceToZone;
+                nearestDistance = distance;
                 nearest = zone;
             }
         }
@@ -161,8 +173,30 @@ public class BlobAbsorber : MonoBehaviour
         transform.localScale = Vector3.zero;
         transform.position = ReturnPoint(start.y);
 
-        status = "waiting for the " + zone.PageSide + " page to finish";
-        yield return WaitForPage(zone);
+        if (returnRightAway)
+        {
+            // Keep the page claimed until the book has started it (from then on the book itself
+            // says it's busy), so other blobs bounce off in the meantime.
+            status = "respawning soon";
+            float waited = 0f;
+            while (waited < 2f && StateKnown(zone) && bridge.StateOf(zone.PageSide) == "idle")
+            {
+                waited += Time.deltaTime;
+                yield return null;
+            }
+            ReleaseClaim();
+            while (waited < respawnDelay)
+            {
+                waited += Time.deltaTime;
+                yield return null;
+            }
+        }
+        else
+        {
+            status = "waiting for the " + zone.PageSide + " page to finish";
+            yield return WaitForPage(zone);
+            ReleaseClaim(); // the page is free for any blob again
+        }
 
         // Grow back in and drift again.
         status = "returning";
@@ -254,9 +288,16 @@ public class BlobAbsorber : MonoBehaviour
         return new Vector3(x, y, z);
     }
 
+    private void ReleaseClaim()
+    {
+        if (claimedZone != null) claimedZone.Release(transform);
+        claimedZone = null;
+    }
+
     private void SetVisible(bool visible)
     {
-        foreach (Renderer r in renderers)
+        // Looked up each time, so the glow made by BlobLook is included too.
+        foreach (Renderer r in GetComponentsInChildren<Renderer>(true))
             if (r != null) r.enabled = visible;
     }
 }
