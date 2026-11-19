@@ -137,7 +137,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!136 &89531466
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -464,6 +464,9 @@ MonoBehaviour:
   dotSize: 0.35
   dotColor: {r: 1, g: 0.95, b: 0.54, a: 1}
   doneColor: {r: 0.35, g: 0.33, b: 0.2, a: 1}
+  showFloorText: 1
+  floorCamera: {fileID: 0}
+  floorTextSize: 0.22
   fileName: floor_calibration.json
   status: 
   currentDot: 0
@@ -1395,7 +1398,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1888779203
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1702,10 +1705,6 @@ PrefabInstance:
     - target: {fileID: 3826859091018452828, guid: d4bb52a6cbc121c4e8d49924c297c71f, type: 3}
       propertyPath: m_Name
       value: ZED
-      objectReference: {fileID: 0}
-    - target: {fileID: 3826859091018452828, guid: d4bb52a6cbc121c4e8d49924c297c71f, type: 3}
-      propertyPath: m_IsActive
-      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6888547205815683840, guid: d4bb52a6cbc121c4e8d49924c297c71f, type: 3}
       propertyPath: m_LocalPosition.x
