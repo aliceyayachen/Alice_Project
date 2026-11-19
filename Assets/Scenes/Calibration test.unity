@@ -1529,30 +1529,6 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
-    - target: {fileID: 2075943634336883053, guid: 02250162f28420146b8564b105db0303, type: 3}
-      propertyPath: m_Enabled
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 4897437628294302153, guid: 02250162f28420146b8564b105db0303, type: 3}
-      propertyPath: m_IsActive
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 4942663531446881999, guid: 02250162f28420146b8564b105db0303, type: 3}
-      propertyPath: m_IsActive
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 5146946259171447690, guid: 02250162f28420146b8564b105db0303, type: 3}
-      propertyPath: m_Enabled
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 6980029850715962901, guid: 02250162f28420146b8564b105db0303, type: 3}
-      propertyPath: m_IsActive
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 7044991231334571948, guid: 02250162f28420146b8564b105db0303, type: 3}
-      propertyPath: m_IsActive
-      value: 1
-      objectReference: {fileID: 0}
     - target: {fileID: 7149552140154316722, guid: 02250162f28420146b8564b105db0303, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0
@@ -1596,10 +1572,6 @@ PrefabInstance:
     - target: {fileID: 7291556545437871163, guid: 02250162f28420146b8564b105db0303, type: 3}
       propertyPath: m_Name
       value: Posner_Exhibit
-      objectReference: {fileID: 0}
-    - target: {fileID: 7291556545437871163, guid: 02250162f28420146b8564b105db0303, type: 3}
-      propertyPath: m_IsActive
-      value: 1
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
