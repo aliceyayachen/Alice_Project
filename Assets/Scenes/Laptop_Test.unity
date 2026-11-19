@@ -492,6 +492,37 @@ MonoBehaviour:
     numPlayers: 0
   inZoneOpacity: 0.85
   emptyOpacity: 0.15
+--- !u!1 &625475195
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 625475196}
+  m_Layer: 0
+  m_Name: Blob Return Point
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &625475196
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 625475195}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -3.57, y: 0, z: 6.47}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1282161637}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &779846117
 GameObject:
   m_ObjectHideFlags: 0
@@ -959,6 +990,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1176413857}
+  - component: {fileID: 1176413858}
   m_Layer: 0
   m_Name: WallBridge
   m_TagString: Untagged
@@ -981,6 +1013,29 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1282161637}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1176413858
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1176413856}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 09e1ea1bb82e72d44bdffd2c45e24fe0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WallBookBridge
+  leftZone: {fileID: 1335030713}
+  rightZone: {fileID: 1250226614}
+  blob: {fileID: 68420899}
+  useBlobEntryPoint: 1
+  port: 8787
+  sendsPerSecond: 30
+  bookConnected: 0
+  leftPageState: '-'
+  rightPageState: '-'
+  comparisonRunning: 0
+  lastMessageFromBook: 
 --- !u!1 &1250226609
 GameObject:
   m_ObjectHideFlags: 0
@@ -993,6 +1048,7 @@ GameObject:
   - component: {fileID: 1250226613}
   - component: {fileID: 1250226612}
   - component: {fileID: 1250226611}
+  - component: {fileID: 1250226614}
   m_Layer: 0
   m_Name: Destination_Right
   m_TagString: Untagged
@@ -1009,8 +1065,8 @@ Transform:
   m_GameObject: {fileID: 1250226609}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 4.29, y: -0.9, z: -1.5}
-  m_LocalScale: {x: 2.5, y: 0.01, z: 3.8}
+  m_LocalPosition: {x: 5.21, y: -0.9, z: -1.5}
+  m_LocalScale: {x: 0.45, y: 0.01, z: 3.8}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1282161637}
@@ -1027,17 +1083,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9885cdde9ae1e0440852ba124634ee6f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PageDestination
-  page: 1
-  blob: {fileID: 68420899}
-  previewDistance: 2
-  rearmDistance: 0.5
-  dwellTime: 0
-  idleColor: {r: 0.25, g: 0.24, b: 0.12, a: 1}
-  activeColor: {r: 1, g: 0.949, b: 0.541, a: 1}
-  distanceToZone: 0
-  proximity: 0
-  blobInside: 0
-  arrivalCount: 0
 --- !u!23 &1250226612
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -1095,9 +1140,37 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1250226609}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1250226614
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1250226609}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c027833c37fb9004394793fe50a76b1c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PageDestination
+  page: 1
+  blob: {fileID: 68420899}
+  previewDistance: 2
+  rearmDistance: 0.5
+  dwellTime: 0
+  idleColor: {r: 0.25, g: 0.24, b: 0.12, a: 1}
+  activeColor: {r: 1, g: 0.949, b: 0.541, a: 1}
+  distanceToZone: 0
+  proximity: 0
+  blobInside: 0
+  arrivalCount: 0
 --- !u!4 &1282161637 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 7149552140154316722, guid: 02250162f28420146b8564b105db0303, type: 3}
+  m_PrefabInstance: {fileID: 1969149190}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &1325215115 stripped
+BoxCollider:
+  m_CorrespondingSourceObject: {fileID: 2006654790636323498, guid: 02250162f28420146b8564b105db0303, type: 3}
   m_PrefabInstance: {fileID: 1969149190}
   m_PrefabAsset: {fileID: 0}
 --- !u!1 &1335030707
@@ -1113,6 +1186,7 @@ GameObject:
   - component: {fileID: 1335030710}
   - component: {fileID: 1335030709}
   - component: {fileID: 1335030712}
+  - component: {fileID: 1335030713}
   m_Layer: 0
   m_Name: Destination_Left
   m_TagString: Untagged
@@ -1129,8 +1203,8 @@ Transform:
   m_GameObject: {fileID: 1335030707}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 4.29, y: -0.9, z: 2.5}
-  m_LocalScale: {x: 2.5, y: 0.01, z: 3.8}
+  m_LocalPosition: {x: 5.31, y: -0.9, z: 2.5}
+  m_LocalScale: {x: 0.45, y: 0.01, z: 3.8}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1282161637}
@@ -1147,17 +1221,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9885cdde9ae1e0440852ba124634ee6f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PageDestination
-  page: 0
-  blob: {fileID: 68420899}
-  previewDistance: 2
-  rearmDistance: 0.5
-  dwellTime: 0
-  idleColor: {r: 0.25, g: 0.24, b: 0.12, a: 1}
-  activeColor: {r: 1, g: 0.949, b: 0.541, a: 1}
-  distanceToZone: 0
-  proximity: 0
-  blobInside: 0
-  arrivalCount: 0
 --- !u!23 &1335030710
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -1238,6 +1301,29 @@ MonoBehaviour:
   rightPageState: '-'
   comparisonRunning: 0
   lastMessageFromBook: 
+--- !u!114 &1335030713
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1335030707}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c027833c37fb9004394793fe50a76b1c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PageDestination
+  page: 0
+  blob: {fileID: 68420899}
+  previewDistance: 2
+  rearmDistance: 0.5
+  dwellTime: 0
+  idleColor: {r: 0.25, g: 0.24, b: 0.12, a: 1}
+  activeColor: {r: 1, g: 0.949, b: 0.541, a: 1}
+  distanceToZone: 0
+  proximity: 0
+  blobInside: 0
+  arrivalCount: 0
 --- !u!1 &1467326974
 GameObject:
   m_ObjectHideFlags: 0
@@ -1563,6 +1649,35 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 50, y: -30, z: 0}
+--- !u!1 &1727301129 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 4942663531446881999, guid: 02250162f28420146b8564b105db0303, type: 3}
+  m_PrefabInstance: {fileID: 1969149190}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1727301130
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1727301129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f694dabf05d6af54588317c0a69abc63, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::BlobAbsorber
+  zones: []
+  bridge: {fileID: 0}
+  floor: {fileID: 1325215115}
+  pullDistance: 0
+  pullStrength: 4
+  absorbTime: 0.5
+  returnPoint: {fileID: 625475196}
+  returnSpread: 1.5
+  returnInset: 1
+  reappearTime: 0.8
+  fallbackWait: 16
+  status: free
 --- !u!1 &1893829994
 GameObject:
   m_ObjectHideFlags: 0
@@ -1727,7 +1842,13 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 7149552140154316722, guid: 02250162f28420146b8564b105db0303, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1176413857}
-    m_AddedComponents: []
+    - targetCorrespondingSourceObject: {fileID: 7149552140154316722, guid: 02250162f28420146b8564b105db0303, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 625475196}
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 4942663531446881999, guid: 02250162f28420146b8564b105db0303, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1727301130}
   m_SourcePrefab: {fileID: 100100000, guid: 02250162f28420146b8564b105db0303, type: 3}
 --- !u!1 &1969929647
 GameObject:

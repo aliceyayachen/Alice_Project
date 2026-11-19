@@ -57,11 +57,15 @@ public class WallBookBridge : MonoBehaviour
     private readonly ConcurrentQueue<string> events = new ConcurrentQueue<string>();
     private float sendTimer;
 
+    // Read by BlobAbsorber: is the book connected, and what is each page doing?
+    public bool BookConnected => bookConnected;
+    public string StateOf(PageDestination.Page page) => page == PageDestination.Page.Left ? leftPageState : rightPageState;
+
     private void OnEnable()
     {
         if (blob == null)
         {
-            FloorBlob found = FindFirstObjectByType<FloorBlob>();
+            FloorBlob found = FindAnyObjectByType<FloorBlob>();
             if (found != null) blob = found.transform;
         }
         if (leftZone == null || rightZone == null)
@@ -86,6 +90,7 @@ public class WallBookBridge : MonoBehaviour
         while (events.TryDequeue(out string note)) Debug.Log("WallBookBridge: " + note, this);
         while (incoming.TryDequeue(out string message)) HandleBookMessage(message);
         bookConnected = clientReady;
+        if (!bookConnected) { leftPageState = "-"; rightPageState = "-"; comparisonRunning = false; }
 
         if (!clientReady) return;
 
@@ -93,8 +98,10 @@ public class WallBookBridge : MonoBehaviour
         if (sendTimer >= 1f / sendsPerSecond)
         {
             sendTimer = 0f;
-            float left = leftZone != null ? leftZone.Proximity : 0f;
-            float right = rightZone != null ? rightZone.Proximity : 0f;
+            // Only idle pages get a preview: a page that's still revealing / holding / covering gets 0,
+            // so a blob hanging near a busy page doesn't make its preview flicker.
+            float left = leftZone != null && PageCanPreview(leftPageState) ? leftZone.Proximity : 0f;
+            float right = rightZone != null && PageCanPreview(rightPageState) ? rightZone.Proximity : 0f;
             Send(string.Format(CultureInfo.InvariantCulture,
                 "{{\"type\":\"proximity\",\"left\":{0:0.###},\"right\":{1:0.###}}}", left, right));
         }
@@ -128,6 +135,9 @@ public class WallBookBridge : MonoBehaviour
             "{{\"type\":\"arrive\",\"page\":\"{0}\",\"x\":{1:0.###}}}", page, entry));
         Debug.Log("WallBookBridge: sent " + page + " page arrival (entry " + entry.ToString("0.00") + ")", this);
     }
+
+    // "-" means the book hasn't reported yet: allow the preview.
+    private static bool PageCanPreview(string state) => state == "idle" || state == "-";
 
     private void HandleBookMessage(string message)
     {

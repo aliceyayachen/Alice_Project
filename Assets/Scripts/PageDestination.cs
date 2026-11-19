@@ -2,11 +2,11 @@ using UnityEngine;
 
 /// <summary>
 /// One floor zone in front of the wall, linked to one page of the book.
-/// Think of it as the page's footprint extended down onto the floor:
+/// Think of it as the page's footprint along the base of the wall:
 /// the blob arrives when it enters ANYWHERE inside this rectangle.
 ///
 /// Size and position come from this object's Transform (use a Cube mesh):
-///   Position = centre of the zone, Scale X / Z = its size on the floor.
+///   Position = centre of the zone, Scale X = depth (from the wall edge), Scale Z = width along the wall.
 /// It only READS the blob's position (FloorBlob is not changed) and works out:
 ///   Proximity: 0 when the blob is farther than Preview Distance from the zone,
 ///              rising to 1 at the zone's edge (and inside it).
@@ -40,9 +40,10 @@ public class PageDestination : MonoBehaviour
     [SerializeField] private bool blobInside;
     [SerializeField] private int arrivalCount;
 
-    // Read by the wall connection later.
+    // Read by WallBookBridge and BlobAbsorber.
     public Page PageSide => page;
     public float Proximity => proximity;
+    public float DistanceToZone => distanceToZone;
     public bool ArrivedThisFrame { get; private set; }
 
     private bool armed = true;
@@ -69,7 +70,7 @@ public class PageDestination : MonoBehaviour
         ArrivedThisFrame = false;
         if (blob == null) return;
 
-        distanceToZone = DistanceToZone(blob.position);
+        distanceToZone = DistanceTo(blob.position);
 
         // 1 at the zone's edge (or inside), fading to 0 at Preview Distance, eased.
         float t = 1f - Mathf.Clamp01(distanceToZone / previewDistance);
@@ -105,13 +106,26 @@ public class PageDestination : MonoBehaviour
     /// Flat distance from a point to this rectangle on the floor (0 when inside).
     /// Assumes a Cube mesh (1 x 1 x 1). Works if the zone is moved, scaled or turned.
     /// </summary>
-    private float DistanceToZone(Vector3 worldPoint)
+    public float DistanceTo(Vector3 worldPoint)
     {
         Vector3 local = transform.InverseTransformPoint(worldPoint);
         Vector3 size = transform.lossyScale;
         float dx = Mathf.Max(Mathf.Abs(local.x) - 0.5f, 0f) * Mathf.Abs(size.x);
         float dz = Mathf.Max(Mathf.Abs(local.z) - 0.5f, 0f) * Mathf.Abs(size.z);
         return Mathf.Sqrt(dx * dx + dz * dz);
+    }
+
+    /// <summary>
+    /// The point on the zone's middle line (along the wall) nearest to a position.
+    /// Used to pull a blob in and to absorb it.
+    /// </summary>
+    public Vector3 PointOnZone(Vector3 worldPoint)
+    {
+        Vector3 local = transform.InverseTransformPoint(worldPoint);
+        local.x = 0f;
+        local.y = 0f;
+        local.z = Mathf.Clamp(local.z, -0.5f, 0.5f);
+        return transform.TransformPoint(local);
     }
 
     // Outlines in the Scene view: solid = the zone, faint = where the preview starts.
