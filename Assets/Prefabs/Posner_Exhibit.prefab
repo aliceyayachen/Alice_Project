@@ -330,6 +330,7 @@ MonoBehaviour:
   page: 1
   blobs: []
   previewDistance: 2
+  hintStart: 0.45
   rearmDistance: 0.5
   dwellTime: 0
   idleColor: {r: 0.25, g: 0.24, b: 0.12, a: 1}
@@ -701,6 +702,7 @@ MonoBehaviour:
   page: 0
   blobs: []
   previewDistance: 2
+  hintStart: 0.45
   rearmDistance: 0.5
   dwellTime: 0
   idleColor: {r: 0.25, g: 0.24, b: 0.12, a: 1}
@@ -1235,6 +1237,11 @@ MonoBehaviour:
   maxPushSpeed: 5
   pushDistance: 2
   edgePadding: 0.4
+  wanderStrength: 0.5
+  closestToWall: 0.4
+  steerDistance: 1.8
+  maxTurnRate: 0.5
+  pushMemory: 7
   calibratedDot: {fileID: 0}
   calibratedDotRenderer: {fileID: 9078497705432287229}
 --- !u!114 &6006937743018288424
@@ -1762,6 +1769,11 @@ MonoBehaviour:
   maxPushSpeed: 5
   pushDistance: 2
   edgePadding: 0.4
+  wanderStrength: 0.5
+  closestToWall: 0.4
+  steerDistance: 1.8
+  maxTurnRate: 0.5
+  pushMemory: 7
   calibratedDot: {fileID: 0}
   calibratedDotRenderer: {fileID: 7549094141494077787}
 --- !u!114 &658716680577230522
@@ -1953,6 +1965,11 @@ MonoBehaviour:
   maxPushSpeed: 5
   pushDistance: 2
   edgePadding: 0.4
+  wanderStrength: 0.5
+  closestToWall: 0.4
+  steerDistance: 1.8
+  maxTurnRate: 0.5
+  pushMemory: 7
   calibratedDot: {fileID: 0}
   calibratedDotRenderer: {fileID: 7694137999903570213}
 --- !u!114 &6659851840198862800

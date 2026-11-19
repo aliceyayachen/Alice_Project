@@ -10,8 +10,8 @@ using UnityEngine;
 ///   Position = centre of the zone, Scale X = depth (from the wall edge), Scale Z = width along the wall.
 ///
 /// Works with SEVERAL blobs. It only READS their positions (FloorBlob is not changed) and works out:
-///   Proximity: from the NEAREST blob. 0 when it is farther than Preview Distance from the zone,
-///              rising to 1 at the zone's edge (and inside it).
+///   Proximity: from the NEAREST blob. 0 outside the faint outline (Preview Distance),
+///              jumping to Hint Start as soon as a blob touches it, rising to 1 at the zone itself.
 ///   Arrival:   the moment any blob enters the zone (optionally after Dwell Time).
 ///              Each blob has its own arrival / re-arm, so blobs don't interfere with each other.
 ///   Claim:     while one blob is being absorbed into this page, it "claims" the page,
@@ -30,6 +30,9 @@ public class PageDestination : MonoBehaviour
     [Header("Distances (floor units, measured flat)")]
     [Tooltip("Proximity starts rising when a blob is this close to the zone's edge.")]
     [SerializeField, Min(0.01f)] private float previewDistance = 2f;
+    [Tooltip("How strong the hint is the moment a blob touches the outer (faint) outline. " +
+             "0 = it starts from nothing and builds up; higher = words appear straight away.")]
+    [SerializeField, Range(0f, 1f)] private float hintStart = 0.45f;
     [Tooltip("After arriving, a blob must move this far outside the zone before it can arrive again.")]
     [SerializeField, Min(0f)] private float rearmDistance = 0.5f;
     [Tooltip("Seconds a blob must stay inside the zone. 0 = arrive immediately.")]
@@ -145,9 +148,17 @@ public class PageDestination : MonoBehaviour
         distanceToZone = nearest == float.MaxValue ? 999f : nearest;
         blobInside = anyInside;
 
-        // 1 at the zone's edge (or inside), fading to 0 at Preview Distance, eased.
-        float t = 1f - Mathf.Clamp01(distanceToZone / previewDistance);
-        proximity = t * t * (3f - 2f * t);
+        // 0 outside the faint outline. As soon as a blob touches it: Hint Start,
+        // then rising to 1 at the zone's edge (or inside), eased.
+        if (distanceToZone >= previewDistance)
+        {
+            proximity = 0f;
+        }
+        else
+        {
+            float t = 1f - distanceToZone / previewDistance;
+            proximity = Mathf.Lerp(hintStart, 1f, t * t * (3f - 2f * t));
+        }
 
         if (zoneMaterial != null)
             zoneMaterial.color = Color.Lerp(idleColor, activeColor, proximity);
