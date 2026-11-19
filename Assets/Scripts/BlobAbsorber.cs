@@ -83,10 +83,18 @@ public class BlobAbsorber : MonoBehaviour
         }
     }
 
-    // A page can take the blob if the book says it's idle (or if there's no book to ask).
+    // Has the book told us what this page is doing? ("-" means no report yet.)
+    private bool StateKnown(PageDestination zone)
+    {
+        if (bridge == null || !bridge.BookConnected) return false;
+        string state = bridge.StateOf(zone.PageSide);
+        return state == "idle" || state == "revealing" || state == "holding" || state == "covering";
+    }
+
+    // A page can take the blob if the book says it's idle, or if we don't know (no book / no report yet).
     private bool PageIsFree(PageDestination zone)
     {
-        if (bridge == null || !bridge.BookConnected) return true;
+        if (!StateKnown(zone)) return true;
         return bridge.StateOf(zone.PageSide) == "idle";
     }
 
@@ -174,23 +182,23 @@ public class BlobAbsorber : MonoBehaviour
     private IEnumerator WaitForPage(PageDestination zone)
     {
         float waited = 0f;
-        if (bridge != null && bridge.BookConnected)
+        if (StateKnown(zone))
         {
             // Give the book a moment to start the page...
-            while (waited < 2f && bridge.BookConnected && bridge.StateOf(zone.PageSide) == "idle")
+            while (waited < 2f && StateKnown(zone) && bridge.StateOf(zone.PageSide) == "idle")
             {
                 waited += Time.deltaTime;
                 yield return null;
             }
             // ...then wait until it has finished (back to idle).
-            if (bridge.BookConnected && bridge.StateOf(zone.PageSide) != "idle")
+            if (StateKnown(zone) && bridge.StateOf(zone.PageSide) != "idle")
             {
-                while (bridge.BookConnected && bridge.StateOf(zone.PageSide) != "idle")
+                while (StateKnown(zone) && bridge.StateOf(zone.PageSide) != "idle")
                     yield return null;
                 yield break;
             }
         }
-        // No book connected (or it didn't respond): use a fixed wait instead.
+        // The book hasn't reported this page's state: use a fixed wait instead.
         while (waited < fallbackWait)
         {
             waited += Time.deltaTime;

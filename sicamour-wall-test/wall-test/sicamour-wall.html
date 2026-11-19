@@ -543,13 +543,13 @@ function frameNow(ms){
     if(act!=null&&cand!==act&&Math.abs(d[0]-d[1])<28)cand=act;
     if(!M.in||Math.min(d[0],d[1])>260)cand=null;act=cand;
     PROX+=((M.in?ss(320,-60,Math.min(d[0],d[1])):0)-PROX)*(1-Math.exp(-dt*3));
-    pages.forEach((pg,i)=>{const on=i===act&&!COL;/* no hover preview while the collator comparison runs */pg.p1+=((on?ss(200,30,d[i]):0)-pg.p1)*kk;pg.p2+=((on?ss(25,-75,d[i]):0)-pg.p2)*kk});
+    pages.forEach((pg,i)=>{if(keepPreview(pg,t))return;const on=i===act&&!COL;/* no hover preview while the collator comparison runs */pg.p1+=((on?ss(200,30,d[i]):0)-pg.p1)*kk;pg.p2+=((on?ss(25,-75,d[i]):0)-pg.p2)*kk});
   }else{ // Unity / test panel: per-page proximity in floor space
     const q=IN.prox;let cand=q[0]>=q[1]?0:1;
     if(act!=null&&cand!==act&&Math.abs(q[0]-q[1])<PREVIEW.switchMargin)cand=act;
     if(Math.max(q[0],q[1])<.01)cand=null;act=cand;
     PROX+=(Math.max(q[0],q[1])-PROX)*(1-Math.exp(-dt*3));
-    pages.forEach((pg,i)=>{const on=(PREVIEW.onePage?i===act:q[i]>.01)&&!COL;
+    pages.forEach((pg,i)=>{if(keepPreview(pg,t))return;const on=(PREVIEW.onePage?i===act:q[i]>.01)&&!COL;
       pg.p1+=((on?ss(PREVIEW.s1from,PREVIEW.s1to,q[i]):0)-pg.p1)*kk;pg.p2+=((on?ss(PREVIEW.s2from,PREVIEW.s2to,q[i]):0)-pg.p2)*kk});
   }
   reportState(t);
@@ -584,6 +584,7 @@ function arrive(i,x){
   pg.st={c0:T.c0,t0:performance.now()/1000,from:{x:ex,y:Math.min(H+20,by+G.bh*.28)},to:{x:ex,y:by}};
   sendState(true);return true;
 }
+const keepPreview=(pg,t)=>!!pg.st&&t-pg.st.t0<T.s1+.15;
 // Page state for Unity: idle / revealing / holding / covering.
 function pageState(pg,t){const s=pg.st;if(!s)return'idle';const tau=t-s.t0;return tau<T.r1?'revealing':tau<s.c0?'holding':'covering'}
 let lastStateKey='';
