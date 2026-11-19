@@ -950,6 +950,37 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::TurnBlueOnTouch
   playerTag: Player
   touchedColor: {r: 0, g: 0, b: 1, a: 1}
+--- !u!1 &1176413856
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1176413857}
+  m_Layer: 0
+  m_Name: WallBridge
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1176413857
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1176413856}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1282161637}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1250226609
 GameObject:
   m_ObjectHideFlags: 0
@@ -1081,6 +1112,7 @@ GameObject:
   - component: {fileID: 1335030711}
   - component: {fileID: 1335030710}
   - component: {fileID: 1335030709}
+  - component: {fileID: 1335030712}
   m_Layer: 0
   m_Name: Destination_Left
   m_TagString: Untagged
@@ -1183,6 +1215,29 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1335030707}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1335030712
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1335030707}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 09e1ea1bb82e72d44bdffd2c45e24fe0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WallBookBridge
+  leftZone: {fileID: 1335030709}
+  rightZone: {fileID: 1250226611}
+  blob: {fileID: 68420899}
+  useBlobEntryPoint: 1
+  port: 8787
+  sendsPerSecond: 30
+  bookConnected: 0
+  leftPageState: '-'
+  rightPageState: '-'
+  comparisonRunning: 0
+  lastMessageFromBook: 
 --- !u!1 &1467326974
 GameObject:
   m_ObjectHideFlags: 0
@@ -1669,6 +1724,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 7149552140154316722, guid: 02250162f28420146b8564b105db0303, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1250226610}
+    - targetCorrespondingSourceObject: {fileID: 7149552140154316722, guid: 02250162f28420146b8564b105db0303, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1176413857}
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 02250162f28420146b8564b105db0303, type: 3}
 --- !u!1 &1969929647
