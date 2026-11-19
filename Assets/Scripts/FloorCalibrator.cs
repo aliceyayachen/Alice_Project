@@ -31,7 +31,7 @@ public class FloorCalibrator : MonoBehaviour
     [Header("Holding still")]
     [Tooltip("Seconds to stand still on each dot.")]
     [SerializeField, Min(0.3f)] private float holdTime = 2f;
-    [Tooltip("Counts as still while the tracked position stays within this distance (floor units).")]
+    [Tooltip("Counts as still while your AVERAGE position moves less than this (floor units). Small jitter is ignored.")]
     [SerializeField, Min(0.01f)] private float stillRadius = 0.08f;
     [Tooltip("After a dot is taken, you must move at least this far before the next one can be taken.")]
     [SerializeField, Min(0f)] private float moveOnDistance = 0.15f;
@@ -136,7 +136,7 @@ public class FloorCalibrator : MonoBehaviour
         // Remember the last moment or so, to tell whether the person is standing still.
         float now = Time.time;
         recent.Add((now, tracked.Value));
-        while (recent.Count > 0 && now - recent[0].time > 0.5f) recent.RemoveAt(0);
+        while (recent.Count > 0 && now - recent[0].time > 1f) recent.RemoveAt(0);
 
         if (!hasMovedOn && (!lastCapture.HasValue || Vector2.Distance(tracked.Value, lastCapture.Value) > moveOnDistance))
             hasMovedOn = true;
@@ -301,15 +301,18 @@ public class FloorCalibrator : MonoBehaviour
         holdCount = 0;
     }
 
+    // "Still" = your AVERAGE position isn't drifting, even if the tracking jitters around it.
+    // Compares the average of the older half of the last second with the newer half.
     private bool IsStill()
     {
-        if (recent.Count < 5 || recent[recent.Count - 1].time - recent[0].time < 0.4f) return false;
-        Vector2 mean = Vector2.zero;
-        foreach (var r in recent) mean += r.pos;
-        mean /= recent.Count;
-        foreach (var r in recent)
-            if (Vector2.Distance(r.pos, mean) > stillRadius) return false;
-        return true;
+        if (recent.Count < 10 || recent[recent.Count - 1].time - recent[0].time < 0.8f) return false;
+        int half = recent.Count / 2;
+        Vector2 older = Vector2.zero, newer = Vector2.zero;
+        for (int i = 0; i < half; i++) older += recent[i].pos;
+        for (int i = half; i < recent.Count; i++) newer += recent[i].pos;
+        older /= half;
+        newer /= recent.Count - half;
+        return Vector2.Distance(older, newer) < stillRadius;
     }
 
     // The tracked person: an object tagged Player (a ZED avatar, or the test stand-in).
