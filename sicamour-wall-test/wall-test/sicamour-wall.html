@@ -19,11 +19,24 @@ LAYOUT: one centered object, nothing else
 */
 html,body{margin:0;height:100%;background:#050506;overflow:hidden}
 body,canvas{cursor:none;touch-action:none;-webkit-user-select:none;user-select:none}
+/* test panel: only in #test mode (simulates what Unity sends) */
+#tp{position:fixed;left:12px;bottom:12px;display:none;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 12px;border-radius:10px;
+  background:rgba(20,18,12,.85);color:#e9e2c4;font:13px/1.2 system-ui,-apple-system,sans-serif;z-index:2;cursor:default}
+#tp.on{display:flex}#tp label{display:flex;gap:6px;align-items:center}
+#tp input{width:120px;accent-color:#FFF28A}#tp button{min-height:30px;padding:0 10px;border-radius:15px;border:1px solid rgba(255,242,138,.5);background:#2a261a;color:#FFF28A;cursor:pointer}
+#tp output{min-width:2.4em;font-variant-numeric:tabular-nums}#tp .st{opacity:.75}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="tp" aria-label="Test controls (simulates Unity)">
+  <label>Left proximity <input id="tpL" type="range" min="0" max="1" step="0.01" value="0"><output id="tpLo">0.00</output></label>
+  <button id="tpLa">Left arrives</button>
+  <label>Right proximity <input id="tpR" type="range" min="0" max="1" step="0.01" value="0"><output id="tpRo">0.00</output></label>
+  <button id="tpRa">Right arrives</button>
+  <span class="st" id="tpS"></span>
+</div>
 <script>
 {
 const Yc='255,242,138';
@@ -321,6 +334,13 @@ function pill(g,x0,x1,y,h){
   else{const r=h/2;g.moveTo(x0+r,y-r);g.lineTo(x1-r,y-r);g.arc(x1-r,y,r,-Math.PI/2,Math.PI/2);g.lineTo(x0+r,y+r);g.arc(x0+r,y,r,Math.PI/2,Math.PI*1.5)}
   g.fill();
 }
+// ---- input mode, chosen by the address: (none) = Unity, #mouse = mouse test, #test = test panel ----
+const MODE=location.hash==='#mouse'?'mouse':location.hash==='#test'?'test':'unity';
+const WS_URL='ws://localhost:8787/book'; // Unity's bridge listens here (next step)
+// Proximity per page from Unity / the test panel: 0 = far .. 1 = at the page's floor zone.
+const IN={prox:[0,0]};
+// How a 0-1 proximity maps onto the two preview stages and the binding glow (tune here).
+const PREVIEW={s1from:.05,s1to:.7,s2from:.75,s2to:1,onePage:true,switchMargin:.05};
 let DT=.016,COL=null,PROX=0; // PROX: 0 far from the book .. 1 on it (smoothed)
 // Hinman collator: once BOTH pages are fully revealed, flicker the right line between readings
 const SWAP=.19; // seconds each reading is shown while the collator flickers
@@ -517,12 +537,22 @@ function frameNow(ms){
   B.vis+=((M.in?1:0)-B.vis)*(1-Math.exp(-dt*6));
   B.trail.unshift([B.x,B.y]);if(B.trail.length>14)B.trail.length=14;
 
-  const d=pages.map(sd);let cand=d[0]<d[1]?0:1;
-  if(act!=null&&cand!==act&&Math.abs(d[0]-d[1])<28)cand=act;
-  if(!M.in||Math.min(d[0],d[1])>260)cand=null;act=cand;
   const kk=1-Math.exp(-dt*4.5);
-  PROX+=((M.in?ss(320,-60,Math.min(d[0],d[1])):0)-PROX)*(1-Math.exp(-dt*3));
-  pages.forEach((pg,i)=>{const on=i===act&&!COL;/* no hover preview while the collator comparison runs */pg.p1+=((on?ss(200,30,d[i]):0)-pg.p1)*kk;pg.p2+=((on?ss(25,-75,d[i]):0)-pg.p2)*kk});
+  if(MODE==='mouse'){ // test shortcut: the pointer stands in for a floor blob
+    const d=pages.map(sd);let cand=d[0]<d[1]?0:1;
+    if(act!=null&&cand!==act&&Math.abs(d[0]-d[1])<28)cand=act;
+    if(!M.in||Math.min(d[0],d[1])>260)cand=null;act=cand;
+    PROX+=((M.in?ss(320,-60,Math.min(d[0],d[1])):0)-PROX)*(1-Math.exp(-dt*3));
+    pages.forEach((pg,i)=>{const on=i===act&&!COL;/* no hover preview while the collator comparison runs */pg.p1+=((on?ss(200,30,d[i]):0)-pg.p1)*kk;pg.p2+=((on?ss(25,-75,d[i]):0)-pg.p2)*kk});
+  }else{ // Unity / test panel: per-page proximity in floor space
+    const q=IN.prox;let cand=q[0]>=q[1]?0:1;
+    if(act!=null&&cand!==act&&Math.abs(q[0]-q[1])<PREVIEW.switchMargin)cand=act;
+    if(Math.max(q[0],q[1])<.01)cand=null;act=cand;
+    PROX+=(Math.max(q[0],q[1])-PROX)*(1-Math.exp(-dt*3));
+    pages.forEach((pg,i)=>{const on=(PREVIEW.onePage?i===act:q[i]>.01)&&!COL;
+      pg.p1+=((on?ss(PREVIEW.s1from,PREVIEW.s1to,q[i]):0)-pg.p1)*kk;pg.p2+=((on?ss(PREVIEW.s2from,PREVIEW.s2to,q[i]):0)-pg.p2)*kk});
+  }
+  reportState(t);
 
   let dim=1;
   for(const pg of pages)if(pg.st){const tau=t-pg.st.t0;
@@ -540,15 +570,27 @@ function frameNow(ms){
   ctx.globalCompositeOperation='lighter';
   for(const pg of pages)drawPulse(pg,t);
   drawStreaks(t);
-  const v=B.vis*dim;
+  const v=MODE==='mouse'?B.vis*dim:0; // the floating light dot is a mouse-test shortcut only
   if(v>.01){B.trail.forEach((p,i)=>{if(i)spr(YS,p[0],p[1],22,22,.07*v*(1-i/14))});spr(YS,B.x,B.y,58,58,.32*v);spr(HOT,B.x,B.y,17,17,.95*v)}
   ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
 }
 
 function move(e){M.x=e.clientX;M.y=e.clientY;if(!M.in&&B.vis<.05){B.x=M.x;B.y=M.y}M.in=true}
-addEventListener('pointermove',move);
+// A floor blob reached page i's destination. x = where along the page's bottom edge the light enters (0-1, optional).
+// Returns false if that page is still busy with its previous sequence.
+function arrive(i,x){
+  const pg=pages[i];if(!ready||!pg||pg.st)return false;
+  const ex=lerp(pg.x0+24,pg.x1-24,x==null?.5:cl(+x||0)),by=G.botY(ex);
+  pg.st={c0:T.c0,t0:performance.now()/1000,from:{x:ex,y:Math.min(H+20,by+G.bh*.28)},to:{x:ex,y:by}};
+  sendState(true);return true;
+}
+// Page state for Unity: idle / revealing / holding / covering.
+function pageState(pg,t){const s=pg.st;if(!s)return'idle';const tau=t-s.t0;return tau<T.r1?'revealing':tau<s.c0?'holding':'covering'}
+let lastStateKey='';
+function reportState(t){const k=pages.map(pg=>pageState(pg,t)).join(',')+','+!!COL;if(k!==lastStateKey){lastStateKey=k;sendState()}}
+addEventListener('pointermove',e=>{if(MODE==='mouse')move(e)});
 addEventListener('pointerdown',e=>{
-  if(e.target!==cv)return;
+  if(MODE!=='mouse'||e.target!==cv)return;
   move(e);if(!ready)return;
   for(const pg of pages){
     if(pg.st||!hit.isPointInPath(pg.path,e.clientX,e.clientY))continue;
@@ -561,6 +603,38 @@ addEventListener('blur',()=>{M.in=false});
 let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{if(layout())ready=true},120)});
 if(window.ResizeObserver)new ResizeObserver(()=>{if(!ready&&layout())ready=true}).observe(document.documentElement);
 
+// ---- connection to Unity ----
+let ws=null,wsOpen=false;
+function sendState(){
+  if(!ws||!wsOpen||!pages.length)return;
+  const t=performance.now()/1000;
+  try{ws.send(JSON.stringify({type:'state',left:pageState(pages[0],t),right:pageState(pages[1],t),collator:!!COL}))}catch(e){}
+}
+function handle(msg){
+  let m;try{m=typeof msg==='string'?JSON.parse(msg):msg}catch(e){return}
+  if(!m||!m.type)return;
+  if(m.type==='proximity'){IN.prox[0]=cl(+m.left||0);IN.prox[1]=cl(+m.right||0)}
+  else if(m.type==='arrive'){const i=m.page==='right'?1:0,ok=arrive(i,m.x);
+    if(ws&&wsOpen)try{ws.send(JSON.stringify({type:'arrived',page:i?'right':'left',accepted:ok}))}catch(e){}}
+}
+function connect(){
+  try{ws=new WebSocket(WS_URL)}catch(e){setTimeout(connect,1000);return}
+  ws.onopen=()=>{wsOpen=true;console.log('[book] connected to Unity');try{ws.send(JSON.stringify({type:'hello',from:'book'}))}catch(e){};lastStateKey=''};
+  ws.onmessage=e=>handle(e.data);
+  ws.onclose=()=>{if(wsOpen)console.log('[book] Unity disconnected - waiting for it to come back');wsOpen=false;IN.prox[0]=IN.prox[1]=0;setTimeout(connect,1000)};
+  ws.onerror=()=>{};
+}
+if(MODE==='unity')connect();
+// For scripted testing: window.wallBook.setProximity('left',0.5) / .arrive('right')
+window.wallBook={setProximity:(p,v)=>{IN.prox[p==='right'?1:0]=cl(+v||0)},arrive:(p,x)=>arrive(p==='right'?1:0,x),
+  state:()=>{const t=performance.now()/1000;return{left:pageState(pages[0],t),right:pageState(pages[1],t),collator:!!COL,mode:MODE,connected:wsOpen}},handle};
+if(MODE==='test'){
+  const $=id=>document.getElementById(id),tp=$('tp');tp.classList.add('on');document.body.style.cursor='default';cv.style.cursor='default';
+  const bind=(sl,out,i)=>{$(sl).oninput=e=>{IN.prox[i]=+e.target.value;$(out).textContent=IN.prox[i].toFixed(2)}};
+  bind('tpL','tpLo',0);bind('tpR','tpRo',1);
+  $('tpLa').onclick=()=>{if(!arrive(0))$('tpS').textContent='Left page busy'};$('tpRa').onclick=()=>{if(!arrive(1))$('tpS').textContent='Right page busy'};
+  setInterval(()=>{if(!pages.length)return;const st=window.wallBook.state();$('tpS').textContent='left: '+st.left+' · right: '+st.right+(st.collator?' · comparing':'')},250);
+}
 const go=()=>{if(layout())ready=true;else setTimeout(go,250)};
 if(document.fonts)document.fonts.load('400 40px "EB Garamond"').then(f=>{if(!f.length)console.warn('EB Garamond not found in ./fonts - using a fallback serif')}).catch(()=>{});
 const fl=document.fonts?Promise.race([document.fonts.load(`400 40px "EB Garamond"`),new Promise(r=>setTimeout(r,2500))]):Promise.resolve();
