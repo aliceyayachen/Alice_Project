@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sicamour — Absorbed Light</title>
+<style>
+/* offline font: put the EB Garamond file(s) from Google Fonts in a "fonts" folder next to this file */
+@font-face{font-family:"EB Garamond";font-weight:400;font-style:normal;
+  src:url("fonts/EBGaramond-Regular.ttf") format("truetype"),url("fonts/EBGaramond-VariableFont_wght.ttf") format("truetype")}
+</style>
+<style>
+/*
+VOICE: hushed, theatrical, a dark exhibition room
+IDEA: a projected open book whose ink retreats from light
+PICTURE: the book itself, full frame, light circling its edge
+COLOUR and TYPE: near-black, dim paper, ink-black, one pale yellow #FFF28A; EB Garamond
+LAYOUT: one centered object, nothing else
+*/
+html,body{margin:0;height:100%;background:#050506;overflow:hidden}
+body,canvas{cursor:none;touch-action:none;-webkit-user-select:none;user-select:none}
+/* test panel: only in #test mode (simulates what Unity sends) */
+#tp{position:fixed;left:12px;bottom:12px;display:none;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 12px;border-radius:10px;
+  background:rgba(20,18,12,.85);color:#e9e2c4;font:13px/1.2 system-ui,-apple-system,sans-serif;z-index:2;cursor:default}
+#tp.on{display:flex}#tp label{display:flex;gap:6px;align-items:center}
+#tp input{width:120px;accent-color:#FFF28A}#tp button{min-height:30px;padding:0 10px;border-radius:15px;border:1px solid rgba(255,242,138,.5);background:#2a261a;color:#FFF28A;cursor:pointer}
+#tp output{min-width:2.4em;font-variant-numeric:tabular-nums}#tp .st{opacity:.75}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="tp" aria-label="Test controls (simulates Unity)">
+  <label>Left proximity <input id="tpL" type="range" min="0" max="1" step="0.01" value="0"><output id="tpLo">0.00</output></label>
+  <button id="tpLa">Left arrives</button>
+  <label>Right proximity <input id="tpR" type="range" min="0" max="1" step="0.01" value="0"><output id="tpRo">0.00</output></label>
+  <button id="tpRa">Right arrives</button>
+  <span class="st" id="tpS"></span>
+</div>
+<script>
+{
+const Yc='255,242,138';
+const TOP=[
+'My Mother had a Maid call’d Barbarie,',
+'She was in loue: and he she lou’d prou’d mad,',
+'And did forsake her. She had a Song of Willough,',
+'An old thing ’twas: but it express’d her Fortune,',
+'And she dy’d singing it. That Song to night,',
+'Will not go from my mind: I haue much to do,',
+'But to go hang my head all at one side',
+'And sing it like poore Barbarie: prythee dispatch.'];
+const BOT=[
+'Sing all a greene Willough:',
+'Her hand on her bosome her head on her knee,',
+'Sing Willough, Willough, Willough.',
+'The fresh Streames ran by her, and murmur’d her moanes',
+'Sing Willough, &c.',
+'Her salt teares fell from her, and softned the stones,',
+'Sing Willough, &c. Lay by these:',
+'Willough, Willough. Prythee high thee: he’le come anon.'];
+const FEAT=['The poore Sonle set sining, by a Sicamour tree.','The poore Soule sat singing, by a Sicamour tree.'];
+const FW=FEAT.map(f=>f.split(' '));
+const FONT='"EB Garamond","Cormorant Garamond",Garamond,Georgia,serif';
+
+// timeline (seconds from click)
+const OPT={streaks:false,comet:false,cover:true,tone:0,blur:.24}; // final look: ribbon streaks, glowing cover, warm tone
+// paper palette (warm) and ink tones
+const PAL={
+  warm:{pg:['#7a6c55','#8a7b62','#94856b','#8f8066','#8d7e64','#85775d','#6c5f49'],stack:['#a09175','#8b7d63'],stackLn:'rgba(90,70,45,.22)',shade:'30,20,10',top:'255,250,235',bot:'40,28,15',edge:'rgba(120,85,45,.35)'},
+  mid:{pg:['#6f6b66','#7e7a75','#88847e','#83807a','#807d77','#78756f','#615e59'],stack:['#959189','#807c76'],stackLn:'rgba(55,48,45,.24)',shade:'22,18,22',top:'248,246,244',bot:'28,24,26',edge:'rgba(80,70,68,.38)'}};
+const TONES=[{name:'warm',paper:'warm',ink:'40,25,24'},{name:'balanced',paper:'mid',ink:'36,25,38'},{name:'navy',paper:'warm',ink:'20,20,56'}];
+const tone=()=>TONES[OPT.tone%TONES.length]||TONES[0];
+const pal=()=>PAL[tone().paper];
+const inkRGB=()=>Yc;
+const LAG=.13; // dissolve + yellow words trail the yellow wave by this fraction of the page (about two rows)
+const T={p:.42,s0:.42,sd:1.5,r0:2.1,rd:1.6,hold:10,cd:1.9};
+T.s1=T.s0+T.sd;T.r1=T.r0+T.rd;T.c0=T.r1+T.hold;T.end=T.c0+T.cd;
+// A lit page waits, sentence highlighted, until the OTHER page is lit too; then the collator flickers,
+// both pages hold, and both cover together. PAIR_WAIT = seconds a lone page may wait (0 = wait forever).
+const PAIR_WAIT=60;
+const waitC0=()=>PAIR_WAIT>0?T.r1+PAIR_WAIT:1e7;
+
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const hit=document.createElement('canvas').getContext('2d');
+let W,H,dpr,G,base,OC=[],perimC=1,statOff,cvDark,txtC,bgC,coverP,ornP,cvGlow,cvCrisp,orGlow,orCrisp,stat,glowL,glowC,pages=[],O=[],perim=1,ready=false,last=0,act=null;
+const M={x:-999,y:-999,in:false},B={x:-999,y:-999,vis:0,trail:[]};
+
+const cl=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const ss=(a,b,x)=>{const t=cl((x-a)/(b-a));return t*t*(3-2*t)};
+const lerp=(a,b,t)=>a+(b-a)*t;
+const eio=t=>{t=cl(t);return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2};
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function sprite(stops){const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d');const gr=g.createRadialGradient(64,64,0,64,64,64);stops.forEach(s=>gr.addColorStop(s[0],s[1]));g.fillStyle=gr;g.fillRect(0,0,128,128);return c}
+const INK=sprite([[0,'rgba(17,17,52,1)'],[.45,'rgba(17,17,52,.96)'],[.68,'rgba(17,17,52,.6)'],[.86,'rgba(17,17,52,.18)'],[1,'rgba(17,17,52,0)']]);
+const YS=sprite([[0,`rgba(${Yc},1)`],[.22,`rgba(${Yc},.6)`],[.5,`rgba(${Yc},.2)`],[.78,`rgba(${Yc},.05)`],[1,`rgba(${Yc},0)`]]);
+const YINK=sprite([[0,'rgba(255,242,138,1)'],[.45,'rgba(255,240,130,.95)'],[.68,'rgba(255,236,120,.58)'],[.86,'rgba(255,232,110,.16)'],[1,'rgba(255,232,110,0)']]);
+const STK=sprite([[0,'rgba(255,248,195,.95)'],[.25,`rgba(${Yc},.7)`],[.5,`rgba(${Yc},.28)`],[.76,`rgba(${Yc},.07)`],[1,`rgba(${Yc},0)`]]);
+const HOT=sprite([[0,'rgba(255,253,228,1)'],[.3,`rgba(${Yc},.85)`],[.62,`rgba(${Yc},.22)`],[1,`rgba(${Yc},0)`]]);
+function spr(s,x,y,rx,ry,a){if(a<=.003)return;ctx.globalAlpha=Math.min(1,a);ctx.drawImage(s,x-rx,y-ry,rx*2,ry*2)}
+
+function poly(side,eo,eb){
+  const {cx,hw,topY,botY,bh}=G,ox=cx+side*(hw+eo),P=[],N=48;
+  for(let i=0;i<=N;i++){const x=lerp(ox,cx,i/N);P.push([x,topY(x)-eb*.04])}
+  for(let i=0;i<=N;i++){const x=lerp(cx,ox,i/N);P.push([x,botY(x)+eb])}
+  for(let i=1;i<N;i++){const v=i/N;P.push([ox+side*bh*.006*Math.sin(Math.PI*v),lerp(botY(ox)+eb,topY(ox)-eb*.04,v)])}
+  return P;
+}
+// one curling scroll: a gently bowed stem that winds into a spiral; local +x along the stem, curls toward -y
+function addScroll(P,x,y,s,ang,flip,turns=2.3){
+  const pts=[],cx0=s*.7,cy0=-s*.32,r0=s*.17;
+  for(let i=0;i<=16;i++){const u=i/16;pts.push([cx0*u,-s*.15*u*u])}
+  for(let i=1;i<=46;i++){const th=Math.PI/2-i/46*turns*Math.PI,r=r0*Math.exp(-.2*(i/46*turns*Math.PI));pts.push([cx0+r*Math.cos(th),cy0+r*Math.sin(th)])}
+  const c=Math.cos(ang),sn=Math.sin(ang),tf=(lx,ly)=>{ly*=flip;return[x+lx*c-ly*sn,y+lx*sn+ly*c]};
+  pts.forEach((q,i)=>{const [X,Y]=tf(q[0],q[1]);i?P.lineTo(X,Y):P.moveTo(X,Y)});
+  // a small leaf off the stem
+  const lx=cx0*.38,ly=-s*.15*.38*.38;
+  const a0=tf(lx,ly),a1=tf(lx+s*.08,ly-s*.17),a2=tf(lx+s*.25,ly-s*.13),a3=tf(lx+s*.15,ly-s*.02);
+  P.moveTo(a0[0],a0[1]);P.quadraticCurveTo(a1[0],a1[1],a2[0],a2[1]);P.quadraticCurveTo(a3[0],a3[1],a0[0],a0[1]);
+}
+const dot=(P,x,y,r)=>{P.moveTo(x+r,y);P.arc(x,y,r,0,Math.PI*2)};
+// corner flourish: one scroll running along each edge from the corner, curling to side `cs`, plus a bud on the diagonal
+function cornerOrn(P,x,y,s,dx,dy,cs){
+  addScroll(P,x,y,s,dx>0?0:Math.PI,dx>0?cs*dy:-cs*dy);
+  addScroll(P,x,y,s,dy>0?Math.PI/2:-Math.PI/2,dy>0?-cs*dx:cs*dx);
+  addScroll(P,x,y,s*.55,Math.atan2(dy,dx),1,1.6);
+  dot(P,x,y,s*.05);dot(P,x+dx*s*.22,y+dy*s*.22,s*.03);
+}
+// centred flourish: mirrored scrolls either side of a point, curling toward `cs`
+function midOrn(P,x,y,s,ang,cs){
+  addScroll(P,x,y,s,ang,cs);addScroll(P,x,y,s,ang+Math.PI,-cs);
+  const nx=-Math.sin(ang)*cs,ny=Math.cos(ang)*cs;dot(P,x-nx*s*.12,y-ny*s*.12,s*.05);dot(P,x-nx*s*.26,y-ny*s*.26,s*.03);
+}
+const toPath=P=>{const p=new Path2D();P.forEach((q,i)=>i?p.lineTo(q[0],q[1]):p.moveTo(q[0],q[1]));p.closePath();return p};
+
+// build everything for the current size; returns false (and keeps trying) while the viewer has no size yet
+function layout(){
+  if(innerWidth<60||innerHeight<60)return false;
+  try{layoutNow();return true}catch(e){console.error(e);return false}
+}
+function layoutNow(){
+  dpr=Math.min(2,window.devicePixelRatio||1);W=innerWidth;H=innerHeight;
+  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+  const bw=Math.min(W*.8,H*.7*1.5),bh=bw/1.5,cx=W/2,hw=bw/2,by0=(H-bh)/2-bh*.02,by1=by0+bh;
+  const tt=x=>Math.min(1,Math.abs(x-cx)/hw),dipB=bh*.045,SE=bh*.028,SB=bh*.03;
+  const topY=x=>{const t=tt(x);return by0-bh*.035*Math.pow(1-t,.8)*(1-Math.exp(-t/.05))+bh*.03*Math.exp(-t/.035)};
+  const botY=x=>{const t=tt(x);return by1+bh*.032*Math.pow(1-t,1.8)+bh*.012*Math.exp(-t/.035)};
+  G={cx,hw,bh,by0,by1,SE,SB,topY,botY};
+
+  hit.font=`400 100px ${FONT}`;
+  const wmax=Math.max(...[...TOP,...FEAT,...BOT].map(l=>hit.measureText(l).width));
+  const lw100=[...TOP,...FEAT,...BOT].map(l=>hit.measureText(l).width),wavg=lw100.reduce((a,b)=>a+b,0)/lw100.length;
+  // center on the block's visual weight (ragged-right verse reads left-heavy if centered on its longest line)
+  const LS=1.72; // line spacing (× font size); ink keeps its own size so rows stay separate
+  const fs=Math.min(100*hw*.76/wmax,bh*.78/(17*LS)),lh=fs*LS,ik=fs*1.5,blockW=(wmax*.45+wavg*.55)*fs/100;
+  hit.font=`400 ${fs}px ${FONT}`;const sp=hit.measureText(' ').width;
+  const pad=fs*.7,hh=lh*.62;
+
+  const old=pages;
+  pages=[-1,1].map((side,pi)=>{
+    const x0=side<0?cx-hw:cx,x1=side<0?cx:cx+hw,pcx=(x0+x1)/2;
+    const pg={side,x0,x1,pcx,top:by0,bot:by1+dipB*.5,h:bh,lh,fs,featY:(by0+by1)/2,
+      path:toPath(poly(side,0,0)),words:[],blots:[],p1:0,p2:0,st:null,seed:pi*7.31+1.7};
+    pg.font=`400 ${fs}px ${FONT}`;
+    const lines=[...TOP,FEAT[pi],...BOT],bx=pcx-blockW/2;
+    pg.lines=[];
+    lines.forEach((ln,li)=>{
+      // centered alignment: measure the line (with the variant slots) and start it half that width left of center
+      const lwid=ln.split(' ').reduce((acc,tx,wi)=>acc+(li===8&&FW[0][wi]!==FW[1][wi]?Math.max(...FW.map(f=>hit.measureText(f[wi]).width)):hit.measureText(tx).width),0)+sp*(ln.split(' ').length-1);
+      let x=pcx-lwid/2;const y=pg.featY+(li-8)*lh,LR=rng(li*389+pi*53+7);
+      // each line drifts left a little and snaps back, on its own phase (as in the reference)
+      const L={li,y,x0:x,x1:x,feat:li===8,A:fs*(.9+LR()*1.3),ph:LR(),off:0,lock:0,cyc:0,ts:0,ivs:[]};pg.lines.push(L);
+      ln.split(' ').forEach((tx,wi)=>{
+        const w=hit.measureText(tx).width,R=rng(li*131+wi*17+3);
+        // variant pairs get a fixed slot as wide as the wider reading, so nothing else moves when they swap
+        const slot=li===8&&FW[0][wi]!==FW[1][wi],sw=slot?Math.max(...FW.map(f=>hit.measureText(f[wi]).width)):w;
+        const wd={tx,x,y,w,sw,cx:x+w/2,feat:li===8,idx:wi,pad,hh,f1:.55+R()*.6,f2:.95+R()*.8,p1:R()*6.28,p2:R()*6.28,g:0,a:1,pv:0,vis:0,line:L};
+        if(slot){const at=FW[1-pi][wi];wd.alt={tx:at,w:hit.measureText(at).width}} // each page can show the other reading
+        pg.words.push(wd);
+        const bp=ik*(.16+R()*.12);
+        pg.blots.push({kind:'w',w:wd,line:L,x0:x-bp,x1:x+sw+bp,y:y+(R()-.5)*ik*.06,h:ik*(1+R()*.1),feat:li===8,r:R(),id:pi*5000+pg.blots.length*7+1,sc:1,sh:0,op:1});
+        x+=sw+sp;
+      });
+      L.x1=x-sp;
+      if(li!==8){ // free pills that slide at their own speed and fill the gaps
+        const R2=rng(li*977+pi*31+11),nb=1+Math.floor(R2()*2);
+        for(let k=0;k<nb;k++)pg.blots.push({kind:'f',w:null,line:L,len:ik*(1.2+R2()*1.6),u0:R2(),v:(R2()-.5)*fs*2.6,y:y+(R2()-.5)*ik*.15,h:ik*(.95+R2()*.12),feat:false,r:R2(),id:pi*5000+pg.blots.length*7+3,sc:1,sh:0,op:.4});
+      }
+    });
+    // offscreen ink layers at reduced resolution; blurred each frame like the reference
+    pg.K=.6;pg.ox=x0-lh*2;pg.oy=by0-lh;pg.pw=x1-x0+lh*4;pg.ph=bh+lh*3;
+    const mk=()=>{const c=document.createElement('canvas');c.width=Math.ceil(pg.pw*pg.K);c.height=Math.ceil(pg.ph*pg.K);return c};
+    pg.cD=mk();pg.cY=mk();pg.bD=mk();pg.bY=mk();pg.ik=ik;pg.blur=ik*OPT.blur*pg.K;
+    if(old[pi]){pg.st=old[pi].st;pg.p1=old[pi].p1;pg.p2=old[pi].p2}
+    return pg;
+  });
+
+  // static base: room, page stack, paper, seam, grain, dim text
+  base=document.createElement('canvas');base.width=cv.width;base.height=cv.height;
+  const b=base.getContext('2d');b.setTransform(dpr,0,0,dpr,0,0);
+  b.fillStyle='#050506';b.fillRect(0,0,W,H);
+  const rg=b.createRadialGradient(cx,H/2,0,cx,H/2,Math.max(W,H)*.6);
+  rg.addColorStop(0,'rgba(60,55,45,.35)');rg.addColorStop(1,'rgba(0,0,0,0)');b.fillStyle=rg;b.fillRect(0,0,W,H);
+  bgC=document.createElement('canvas');bgC.width=base.width;bgC.height=base.height;bgC.getContext('2d').drawImage(base,0,0);
+  b.save();b.setTransform(1,0,0,1,0,0);b.clearRect(0,0,base.width,base.height);b.restore();
+  { // cover outline + glowing corner filigree (drawn live so it can pulse)
+    const ce=G.SE+bh*.012,cb=G.SB+bh*.018;coverP=new Path2D();
+    for(const sd of [-1,1])coverP.addPath(toPath(poly(sd,ce,cb)));
+    const mkL=f=>{const c=document.createElement('canvas');c.width=base.width;c.height=base.height;const g=c.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.lineCap='round';g.lineJoin='round';f(g);return c};
+    const cg=g=>{const q=g.createLinearGradient(0,by0,0,by1);q.addColorStop(0,'#fff6b4');q.addColorStop(.5,'#FFF28A');q.addColorStop(1,'#e9cf62');return q};
+    cvDark=mkL(g=>{g.shadowColor='rgba(0,0,0,.75)';g.shadowBlur=bh*.05*dpr;g.shadowOffsetY=bh*.015*dpr;g.fillStyle='#2b1d14';g.fill(coverP);g.shadowColor='transparent';g.strokeStyle='rgba(255,210,160,.12)';g.lineWidth=1;g.stroke(coverP)});
+    cvCrisp=mkL(g=>{
+  g.filter=`blur(${G.bh * 0.008 * dpr}px)`;
+  g.fillStyle=cg(g);
+  g.fill(coverP);
+  g.filter='none';
+});
+    // glow only (no shapes), at half resolution, with the page block cut out; pulsed by alpha each frame
+    const GS=.5;glowL=document.createElement('canvas');glowL.width=Math.ceil(W*GS);glowL.height=Math.ceil(H*GS);
+    const q=glowL.getContext('2d');q.setTransform(GS,0,0,GS,-8000,0);q.shadowOffsetX=8000;
+    q.shadowColor=`rgba(${Yc},.8)`;q.shadowBlur=bh*.06*GS;q.fillStyle='#000';q.fill(coverP);q.fill(coverP);
+    q.shadowColor='transparent';q.shadowOffsetX=0;q.setTransform(GS,0,0,GS,0,0);q.globalCompositeOperation='destination-out';
+    for(const sd of [-1,1])q.fill(toPath(poly(sd,G.SE,G.SB)));
+  }
+  // page block: thin stacked page edges, thickest along the bottom
+  // page stack: many thin page edges fanning out along the outer sides and the bottom
+  for(let k=14;k>=1;k--)for(const s of [-1,1]){const f=k/14,p=toPath(poly(s,G.SE*f,G.SB*f));
+    b.fillStyle=pal().stack[k%2?0:1];b.fill(p);b.strokeStyle=pal().stackLn;b.lineWidth=.6;b.stroke(p)}
+  const gn=document.createElement('canvas');gn.width=gn.height=160;const gc=gn.getContext('2d'),id=gc.createImageData(160,160);
+  for(let i=0;i<id.data.length;i+=4){const v=Math.random()<.5?255:0;id.data[i]=id.data[i+1]=id.data[i+2]=v;id.data[i+3]=Math.random()*13}
+  gc.putImageData(id,0,0);const pat=b.createPattern(gn,'repeat');
+  for(const pg of pages){
+    const ox=pg.side<0?pg.x0:pg.x1,lg=b.createLinearGradient(ox,0,cx,0);
+    [0,.08,.5,.78,.88,.95,1].forEach((o,i)=>lg.addColorStop(o,pal().pg[i]));
+    b.save();b.clip(pg.path);b.fillStyle=lg;b.fillRect(pg.x0-10,by0-20,hw+20,bh+60);
+    const sg=b.createLinearGradient(cx+pg.side*hw*.06,0,cx,0);sg.addColorStop(0,`rgba(${pal().shade},0)`);sg.addColorStop(1,`rgba(${pal().shade},.22)`);
+    b.fillStyle=sg;b.fillRect(pg.x0-10,by0-20,hw+20,bh+60);
+    const vg=b.createLinearGradient(0,by0,0,by1+dipB);vg.addColorStop(0,`rgba(${pal().top},.06)`);vg.addColorStop(.6,'rgba(0,0,0,0)');vg.addColorStop(1,`rgba(${pal().bot},.12)`);
+    b.fillStyle=vg;b.fillRect(pg.x0-10,by0-20,hw+20,bh+60);
+    b.restore();
+    b.strokeStyle=pal().edge;b.lineWidth=.8;b.stroke(pg.path);
+
+  }
+  b.strokeStyle='rgba(0,0,0,.65)';b.lineWidth=1.2;b.beginPath();b.moveTo(cx,G.topY(cx));b.lineTo(cx,G.botY(cx));b.stroke();
+  b.font=`400 ${fs}px ${FONT}`;b.textBaseline='middle';b.fillStyle='rgba(16,13,10,.92)';
+
+  txtC=document.createElement('canvas');txtC.width=base.width;txtC.height=base.height;
+  {const g=txtC.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.textBaseline='middle';g.fillStyle='rgba(42,28,18,.95)';
+   for(const pg of pages){g.font=pg.font;for(const w of pg.words)g.fillText(w.tx,w.x,w.y)}}
+  stat=document.createElement('canvas');stat.width=base.width;stat.height=base.height;
+  {const g=stat.getContext('2d');g.drawImage(bgC,0,0);g.drawImage(cvCrisp,0,0);g.drawImage(base,0,0)}
+  statOff=document.createElement('canvas');statOff.width=base.width;statOff.height=base.height;
+  {const g=statOff.getContext('2d');g.drawImage(bgC,0,0);g.drawImage(cvDark,0,0);g.drawImage(base,0,0)}
+  for(const c of [bgC,cvCrisp,cvDark,base])c.width=c.height=0; // release intermediate full-screen buffers (keeps memory low, esp. Safari/iPad)
+  for(const pg of pages)for(const w of pg.words){const mx=w.x+w.sw/2;w.dy=warpDy(mx,w.y);w.rot=Math.atan2(warpDy(mx+8,w.y)-warpDy(mx-8,w.y),16)}
+  // glow atlas: each word isolated in its own cell so reveals never leak into neighbours
+  const AW=Math.max(800,W);let ax=0,ay=0;const ch=hh*2;
+  for(const pg of pages)for(const w of pg.words)for(const c of w.alt?[w,w.alt]:[w]){const cw=c.w+pad*2;if(ax+cw>AW){ax=0;ay+=ch}c.ax=ax;c.ay=ay;ax+=cw}
+  glowC=document.createElement('canvas');glowC.width=Math.ceil(AW*dpr);glowC.height=Math.ceil((ay+ch)*dpr);
+  const g=glowC.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.font=`400 ${fs}px ${FONT}`;g.textBaseline='middle';
+  for(const pg of pages)for(const w of pg.words.flatMap(q=>q.alt?[q,q.alt]:[q])){
+    g.fillStyle='rgba(90,62,10,.35)';g.shadowColor='rgba(90,62,10,.45)';g.shadowBlur=fs*.12*dpr;g.fillText(w.tx,w.ax+pad,w.ay+hh);
+    g.fillStyle='#FFF28A';g.shadowColor=`rgba(${Yc},.9)`;g.shadowBlur=fs*.3*dpr;g.fillText(w.tx,w.ax+pad,w.ay+hh);g.shadowBlur=0;g.fillText(w.tx,w.ax+pad,w.ay+hh)}
+
+  // light-streak orbit around the book outline
+  const E=G.SE+bh*.012,EB=G.SB+bh*.018,L=cx-hw-E,R=cx+hw+E,P=[],N=160;
+  for(let i=0;i<=N;i++){const x=lerp(L,R,i/N);P.push([x,Math.min(G.topY(x),G.topY(cx+hw*.2))])} // skate over the seam dip
+  for(let i=1;i<40;i++)P.push([R,lerp(G.topY(R),G.botY(R)+EB,i/40)]);
+  for(let i=0;i<=N;i++){const x=lerp(R,L,i/N);P.push([x,G.botY(x)+EB])}
+  for(let i=1;i<40;i++)P.push([L,lerp(G.botY(L)+EB,G.topY(L),i/40)]);
+  const m=cl(bh*.05,16,34),n=P.length;
+  let Q=P.map((p,i)=>{const a=P[(i-1+n)%n],c=P[(i+1)%n];let tx=c[0]-a[0],ty=c[1]-a[1];const l=Math.hypot(tx,ty)||1;return[p[0]+ty/l*m,p[1]-tx/l*m]});
+  for(let it=0;it<14;it++)Q=Q.map((p,i)=>{const a=Q[(i-1+n)%n],c=Q[(i+1)%n];return[(a[0]+2*p[0]+c[0])/4,(a[1]+2*p[1]+c[1])/4]});
+  const cum=[0];for(let i=1;i<=n;i++){const a=Q[i-1],c=Q[i%n];cum.push(cum[i-1]+Math.hypot(c[0]-a[0],c[1]-a[1]))}
+  perim=cum[n];O=[];let j=0;const MM=900;
+  for(let k=0;k<MM;k++){const s=k/MM*perim;while(cum[j+1]<s)j++;const f=(s-cum[j])/((cum[j+1]-cum[j])||1),a=Q[j],c=Q[(j+1)%n];O.push([lerp(a[0],c[0],f),lerp(a[1],c[1],f)])}
+  { // comet track: follows the book's own curves (arched tops, dip at the spine, curved bottom), smoothly rounded, at a constant gap
+    const P2=[];
+    for(let i=0;i<=200;i++){const x=lerp(L,R,i/200);P2.push([x,G.topY(Math.min(Math.max(x,cx-hw),cx+hw))])}
+    for(let i=1;i<60;i++)P2.push([R,lerp(G.topY(cx+hw),G.botY(cx+hw)+EB,i/60)]);
+    for(let i=0;i<=200;i++){const x=lerp(R,L,i/200);P2.push([x,G.botY(Math.min(Math.max(x,cx-hw),cx+hw))+EB])}
+    for(let i=1;i<60;i++)P2.push([L,lerp(G.botY(cx-hw)+EB,G.topY(cx-hw),i/60)]);
+    let [C]=resampleClosed(P2,1200);C=smoothC(C,220);
+    const nC=C.length,gap=bh*.068;
+    C=C.map((p,i)=>{const a=C[(i-3+nC)%nC],c=C[(i+3)%nC],tx=c[0]-a[0],ty=c[1]-a[1],l=Math.hypot(tx,ty)||1;return[p[0]+ty/l*gap,p[1]-tx/l*gap]});
+    C=smoothC(C,30);[OC,perimC]=resampleClosed(C,1600);
+  }
+}
+function resampleClosed(P,M){const n=P.length,cum=[0];for(let i=1;i<=n;i++){const a=P[i-1],c=P[i%n];cum.push(cum[i-1]+Math.hypot(c[0]-a[0],c[1]-a[1]))}
+  const Lt=cum[n],out=[];let j=0;for(let k=0;k<M;k++){const s=k/M*Lt;while(cum[j+1]<s)j++;const f=(s-cum[j])/((cum[j+1]-cum[j])||1),a=P[j],c=P[(j+1)%n];out.push([lerp(a[0],c[0],f),lerp(a[1],c[1],f)])}return[out,Lt]}
+function smoothC(Q,k){const n=Q.length;for(let it=0;it<k;it++)Q=Q.map((p,i)=>{const a=Q[(i-1+n)%n],c=Q[(i+1)%n];return[(a[0]+2*p[0]+c[0])/4,(a[1]+2*p[1]+c[1])/4]});return Q}
+const lerpPath=(A,Lt,s)=>{const M=A.length,u=((s%Lt)+Lt)%Lt/Lt*M,i=Math.floor(u)%M,f=u-Math.floor(u),a=A[i],c=A[(i+1)%M];return[a[0]+(c[0]-a[0])*f,a[1]+(c[1]-a[1])*f]};
+const at=s=>lerpPath(O,perim,s),atC=s=>lerpPath(OC,perimC,s);
+const nrmC=s=>{const a=atC(s-5),b=atC(s+5),dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1;return[dy/l,-dx/l]};
+
+const edgeN=(x,tau,sd)=>.045*Math.sin(x*.019+tau*2.4+sd)+.03*Math.sin(x*.047-tau*3.4+sd*2)+.015*Math.sin(x*.11+tau*5.1);
+const sweepF=tau=>lerp(-.15,1.22+LAG,eio((tau-T.s0)/T.sd));
+
+// how far the click animation has pulled ink away at (x,y): 0 = inked, 1 = clear
+function sweepAt(pg,x,y,r,tau,off=0){const h=(pg.bot-y)/pg.h,e=sweepF(tau)-off+edgeN(x,tau,pg.seed)+(r-.5)*.05;return ss(h-.02,h+.1,e)}
+// how far the yellow wave has tinted the ink at (x,y), ahead of dissolving it
+function tintAt(pg,x,y,r,tau){return tau<T.s0||tau>=T.r0?0:sweepAt(pg,x,y,r,tau)}
+function clickClear(pg,x,y,feat,r,tau){
+  if(tau<T.s0)return 0;
+
+  // The rising wave clears the censoring.
+  let c=1;
+  if(tau<T.s1+.05){
+    c=sweepAt(pg,x,y,r,tau,LAG);
+  }
+
+  // Censoring returns only when the page resets.
+  if(tau>=pg.st.c0){
+    const k=(tau-pg.st.c0)/T.cd*1.15;
+    const th=r*.55+.12*(.5+.5*Math.sin(x*.03+pg.seed));
+    c=Math.min(c,1-ss(th,th+.4,k));
+  }
+
+  return c;
+}
+
+// ---- gentle page-curve warp: text near the top follows the top edge's arch, near the bottom the bottom's sag ----
+const WARP=.7; // 0 = flat, 1 = fully follows the page edges
+const warpDy=(x,y)=>{const v=cl((y-G.by0)/(G.by1-G.by0));return WARP*((1-v)*(G.topY(x)-G.by0)+v*(G.botY(x)-G.by1))};
+function wDraw(img,sx,sy,sw,sh,w,dx,dy,dw,dh,sc=1){ // draw a word-sized image offset + tilted to the page curve (optionally scaled)
+  const c=Math.cos(w.rot)*sc,sn=Math.sin(w.rot)*sc,ox=w.x+w.sw/2,oy=w.y;
+  ctx.setTransform(dpr*c,dpr*sn,-dpr*sn,dpr*c,dpr*ox,dpr*(oy+w.dy));
+  ctx.drawImage(img,sx,sy,sw,sh,dx-ox,dy-oy,dw,dh);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+// ---- ink: smooth pills, stepped cross-fades (as in the reference), blurred as one layer ----
+const BEAT=.2,POSES=4;
+function hsh(a,b){let h=Math.imul(a*374761393+b*668265263|0,1274126177);h^=h>>>13;h=Math.imul(h,1103515245);return((h^h>>>16)>>>0)/4294967296}
+const FILT=(()=>{try{const c=document.createElement('canvas').getContext('2d');c.filter='blur(2px)';return c.filter==='blur(2px)'}catch(e){return false}})();
+let tmpC=document.createElement('canvas');
+function blurInto(src,dst,px){
+  const g=dst.getContext('2d');g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,dst.width,dst.height);
+  if(FILT){g.filter=`blur(${px}px)`;g.drawImage(src,0,0);g.filter='none';return}
+  const f=Math.max(2,px/1.3),tw=Math.max(1,Math.ceil(src.width/f)),th=Math.max(1,Math.ceil(src.height/f));
+  tmpC.width=tw;tmpC.height=th;const tg=tmpC.getContext('2d');tg.imageSmoothingQuality='high';tg.drawImage(src,0,0,tw,th);
+  g.imageSmoothingQuality='high';g.drawImage(tmpC,0,0,dst.width,dst.height);
+}
+function pill(g,x0,x1,y,h){
+  const w=x1-x0;if(w<=.5)return;g.beginPath();
+  if(w<=h){g.ellipse((x0+x1)/2,y,w/2,h/2*Math.min(1,.55+w/h*.45),0,0,Math.PI*2)}
+  else{const r=h/2;g.moveTo(x0+r,y-r);g.lineTo(x1-r,y-r);g.arc(x1-r,y,r,-Math.PI/2,Math.PI/2);g.lineTo(x0+r,y+r);g.arc(x0+r,y,r,Math.PI/2,Math.PI*1.5)}
+  g.fill();
+}
+// ---- input mode, chosen by the address: (none) = Unity, #mouse = mouse test, #test = test panel ----
+const MODE=location.hash==='#mouse'?'mouse':location.hash==='#test'?'test':'unity';
+const WS_URL='ws://localhost:8787/book'; // Unity's bridge listens here (next step)
+// Proximity per page from Unity / the test panel: 0 = far .. 1 = at the page's floor zone.
+const IN={prox:[0,0]};
+// How a 0-1 proximity maps onto the two preview stages and the binding glow (tune here).
+const PREVIEW={s1from:.05,s1to:.7,s2from:.75,s2to:1,onePage:true,switchMargin:.05};
+let DT=.016,COL=null,PROX=0; // PROX: 0 far from the book .. 1 on it (smoothed)
+// Hinman collator: once BOTH pages are fully revealed, flicker the right line between readings
+const SWAP=.19; // seconds each reading is shown while the collator flickers
+const inSwap=t=>COL&&t-COL.C0>=1&&t-COL.C0<5;
+const showEarlier=t=>inSwap(t)&&Math.floor((t-COL.C0-1)/SWAP)%2===0;
+const sinceSwap=t=>inSwap(t)?((t-COL.C0-1)%SWAP):9; // time since the last swap (for the flash + pop)
+function collate(t){
+  if(COL){if(t>COL.C0+10+T.cd+.3)COL=null;return}
+  const [a,b]=pages;if(!a.st||!b.st||a.st.col||b.st.col)return;
+  const ta=t-a.st.t0,tb=t-b.st.t0;
+  if(ta>=T.r1&&tb>=T.r1&&ta<a.st.c0&&tb<b.st.c0){
+    COL={C0:t};for(const p of pages){p.st.col=true;p.st.c0=t+10-p.st.t0} // pauses the earlier page's timer
+  }
+}
+const PERIOD=1.4; // how often each word's ink re-decides whether to open (text itself stays still)
+function lineOffsets(pg,t,s,tau){
+  const lockP=s?ss(0,.35,tau)*(1-ss(s.c0,s.c0+T.cd*.6,tau)):0,ts=t;
+  for(const L of pg.lines){
+    const lock=Math.max(lockP,L.feat?Math.max(pg.p1,pg.p2):0),u=ts/PERIOD+L.ph;
+    L.cyc=Math.floor(u);L.off=0;L.lock=lock;L.ts=ts;L.ivs.length=0;
+  }
+}
+const OPS=[1,1,1,1,.9,.55,.34,.2]; // mix of solid navy and pale, see-through blots (as in the reference stills)
+function buildInk(pg,t,s,tau,seal){
+  const d=pg.cD.getContext('2d'),y=pg.cY.getContext('2d'),K=pg.K;
+  for(const g of [d,y]){g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,pg.cD.width,pg.cD.height);g.setTransform(K,0,0,K,-pg.ox*K,-pg.oy*K)}
+  const ke=1-Math.exp(-DT/.18);pg.anyY=false;
+  for(const b of pg.blots){
+    const L=b.line;let x0,x1;
+    if(b.kind==='w'){
+      let on=1,sh=0;
+      let ot=1;
+      if(!b.feat){on=hsh(b.id,L.cyc+1)<.18?0:1;sh=(hsh(b.id+9,L.cyc+1)-.5)*b.w.w*.7;ot=OPS[Math.floor(hsh(b.id+17,L.cyc+1)*OPS.length)]}
+      b.op+=(ot-b.op)*ke;
+      b.sc+=(on-b.sc)*ke;b.sh+=(sh-b.sh)*ke;
+      x0=b.x0+L.off+b.sh;x1=b.x1+L.off+b.sh;
+    }else{
+      const span=L.x1-L.x0+pg.lh*3,p=((b.u0*span+b.v*L.ts)%span+span)%span,c=L.x0-pg.lh*1.5+p+L.off;
+      x0=c-b.len/2;x1=c+b.len/2;
+      const fc=Math.floor(t/PERIOD+b.r),ot=OPS[3+Math.floor(hsh(b.id+17,fc)*5)];b.op+=(ot-b.op)*ke;
+    }
+    if(b.sc<.03)continue;
+    // while a sentence is held, the lines touching it tuck their ink away from it
+    const nb=Math.abs(L.li-8)===1?seal:0,by=b.y+Math.sign(L.li-8)*nb*pg.lh*.2;
+    const c=(x0+x1)/2,half=(x1-x0)/2*b.sc,h=b.h*(.55+.45*b.sc)*(1-.3*nb);x0=c-half;x1=c+half;
+    // ink never reaches past where this line's text starts and ends
+    const lo=L.x0+h*.06,hi=L.x1-h*.06;x0=Math.max(x0,lo);x1=Math.min(x1,hi);if(x1-x0<h*.35)continue;
+    let clr=0;
+    if(b.kind==='w'&&b.w.pv>0)clr=ss(.02+.08*b.r,.9,b.w.pv);
+    if(s)clr=Math.max(clr,clickClear(pg,c,b.y,b.feat,b.r,tau));
+    const A=(1-ss(.55,1,clr))*b.op;if(A<.01)continue;
+    const tn=s?tintAt(pg,c,b.y,b.r,tau):0;
+    // ink pulls apart from the middle toward both ends
+    const segs=(clr<.01?[[x0,x1]]:(()=>{const Ln=((x1-x0)/2+h*.5)*(1-clr),q=clr*h*.7;return[[x0-q,x0-q+Ln],[x1+q-Ln,x1+q]]})()).map(q=>[Math.max(q[0],lo),Math.min(q[1],hi)]).filter(q=>q[1]-q[0]>1);
+    if(tn<.995){d.fillStyle=`rgba(${inkRGB()},${A*(1-tn)})`;for(const q of segs)pill(d,q[0],q[1],by+warpDy((q[0]+q[1])/2,b.y),h*(1-.15*clr))}
+    if(tn>.005){pg.anyY=true;y.fillStyle=`rgba(255,242,138,${A*tn})`;for(const q of segs)pill(y,q[0],q[1],by+warpDy((q[0]+q[1])/2,b.y),h*(1-.15*clr))}
+    if(Math.abs(b.y-L.y)<pg.lh*.3)for(const q of segs)L.ivs.push([q[0]+h*.1,q[1]-h*.1,A>.38?1:A*2.2]);
+  }
+  blurInto(pg.cD,pg.bD,pg.blur);if(pg.anyY)blurInto(pg.cY,pg.bY,pg.blur);
+  if(seal>0){ // keep the held sentence clear of soft ink bleeding in from the lines around it
+    const g=pg.bD.getContext('2d'),lh=pg.lh,fy=pg.featY,lg=g.createLinearGradient(0,fy-lh*.62,0,fy+lh*.62);
+    g.setTransform(K,0,0,K,-pg.ox*K,-pg.oy*K);g.globalCompositeOperation='destination-out';
+    lg.addColorStop(0,'rgba(0,0,0,0)');lg.addColorStop(.32,`rgba(0,0,0,${seal})`);lg.addColorStop(.68,`rgba(0,0,0,${seal})`);lg.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle=lg;g.fillRect(pg.ox,fy-lh*.62,pg.pw,lh*1.24);g.globalCompositeOperation='source-over';g.setTransform(1,0,0,1,0,0);
+  }
+}
+function drawInk(pg){
+  ctx.globalAlpha=1;ctx.drawImage(pg.bD,pg.ox,pg.oy,pg.pw,pg.ph);
+  if(pg.anyY){ctx.drawImage(pg.bY,pg.ox,pg.oy,pg.pw,pg.ph);
+    ctx.globalCompositeOperation='lighter';ctx.globalAlpha=.3;ctx.drawImage(pg.bY,pg.ox,pg.oy,pg.pw,pg.ph);ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1}
+}
+
+// pick a fresh scatter of preview words each time the light approaches a page: different lines, not the featured one
+function pickPreview(pg){
+  for(const w of pg.words)w.ps=0;
+  const lines=[...new Set(pg.words.filter(w=>!w.feat).map(w=>w.line))].sort(()=>Math.random()-.5);
+  lines.slice(0,8).forEach((L,i)=>{const c=pg.words.filter(w=>w.line===L&&w.tx.replace(/\W/g,'').length>=3);if(c.length)c[Math.floor(Math.random()*c.length)].ps=i<4?1:2});
+}
+function drawPage(pg,t){
+  if(pg.p1<.01&&pg.p2<.01){if(!pg.picked){pickPreview(pg);pg.picked=true}}else pg.picked=false;
+  const s=pg.st,tau=s?t-s.t0:-1;
+  if(s&&tau>s.c0+T.cd+.15){pg.st=null;return drawPage(pg,t)}
+  const seal=s?ss(T.r0,T.r1,tau)*(1-ss(s.c0,s.c0+T.cd,tau)):0;
+  const early=showEarlier(t),breath=COL?()=>1:i=>.86+.14*Math.sin(t*1.7+i*.4);
+  ctx.save();ctx.clip(pg.path);ctx.globalCompositeOperation='source-over';
+  for(const w of pg.words){
+    const n=.6*Math.sin(t*w.f1+w.p1)+.4*Math.sin(t*w.f2+w.p2);
+    let a=w.feat?cl(1+.4*n,.9,1):cl(.9+.75*n);
+    if(!w.feat)a=lerp(a,Math.max(a,.95),seal);
+    w.a=a;
+    w.pv=w.ps===1?pg.p1:w.ps===2?pg.p2:0; // scattered preview words (stage 1 as you approach, stage 2 closer)
+    if(s){
+  const cleared=clickClear(pg,w.cx,w.y,w.feat,.5,tau);
+
+  // Ordinary words fade from yellow to dark ink.
+  // The featured sentence remains yellow.
+  const yellowAmount=w.feat
+    ? 1
+    : 1-ss(T.r0,T.r1,tau);
+
+  w.g=cleared*yellowAmount;
+}else{
+  w.g=w.pv;
+}
+  }
+  lineOffsets(pg,t,s,tau);buildInk(pg,t,s,tau,seal);
+  ctx.font=pg.font;ctx.textBaseline='middle';ctx.fillStyle='rgba(42,28,18,.95)';
+  for(const w of pg.words){
+    const L=w.line,wx=w.x+L.off;let cov=0;
+    for(let i=0;i<6;i++){const px=wx+w.w*(i+.5)/6;let m=0;for(const v of L.ivs)if(px>v[0]&&px<v[1]&&v[2]>m)m=v[2];cov+=m}
+    w.vis=1-ss(.25,.6,cov/6); // words show through gaps in the ink at all times, including while a sentence is held // hidden under ink; faint ink lets a word show grey; clear in gaps
+    const da=(1-w.g)*w.vis;if(da>.01){ctx.globalAlpha=da;const x0=w.x-1,y0=w.y-w.hh,ww=w.w+2,hh2=w.hh*2;wDraw(txtC,x0*dpr,y0*dpr,ww*dpr,hh2*dpr,w,x0,y0,ww,hh2)}
+  }
+  for(const w of pg.words){
+    if(w.g<.01)continue;
+    let a=w.g;if(w.feat&&seal>0)a*=breath(w.idx);
+    const c=early&&w.alt?w.alt:w,cw=c.w+w.pad*2,ch=w.hh*2;ctx.globalAlpha=a;
+    const pop=w.alt&&inSwap(t)?1+.06*Math.exp(-sinceSwap(t)/.04):1; // changed words bounce on each swap
+    wDraw(glowC,c.ax*dpr,c.ay*dpr,cw*dpr,ch*dpr,w,w.x-w.pad,w.y-w.hh,cw,ch,pop);
+  }
+  drawInk(pg);
+  if(s){
+    ctx.globalCompositeOperation='lighter';
+    const I=ss(T.s0-.05,T.s0+.18,tau)*(1-ss(T.s1-.15,T.s1+.4,tau));
+    if(I>0){
+      const F=sweepF(tau);let ys=0,cn=0;
+      for(let x=pg.x0;x<=pg.x1;x+=12){const y=pg.bot-(F+edgeN(x,tau,pg.seed))*pg.h;spr(YS,x,y,pg.h*.085,pg.h*.05,.085*I);ys+=y;cn++}
+      const yf=ys/cn,lg=ctx.createLinearGradient(0,yf-pg.h*.12,0,yf+pg.h*.45);
+      lg.addColorStop(0,`rgba(${Yc},0)`);lg.addColorStop(.22,`rgba(${Yc},${.035*I})`);lg.addColorStop(1,`rgba(${Yc},0)`);
+      ctx.globalAlpha=1;ctx.fillStyle=lg;ctx.fillRect(pg.x0,yf-pg.h*.12,pg.x1-pg.x0,pg.h*.6);
+    }
+    const fl=ss(T.s1-.2,T.s1,tau)*(1-ss(T.s1,T.r0+.5,tau));
+    if(fl>0){ctx.globalAlpha=.03*fl;ctx.fillStyle=`rgb(${Yc})`;ctx.fillRect(pg.x0,pg.top-20,pg.x1-pg.x0,pg.h+40)}
+    if(seal>0)for(const w of pg.words)if(w.feat)spr(YS,w.x+w.sw/2,w.y+w.dy,w.sw*.7+pg.lh*.6,pg.lh*1.1,.045*seal*(COL?1:.85+.15*Math.sin(t*1.7)));
+  }
+  ctx.restore();ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+}
+
+function drawPulse(pg,t){
+  const s=pg.st;if(!s)return;const tau=t-s.t0;
+  if(tau<T.p){const e=Math.pow(tau/T.p,2);
+    for(let j=7;j>=0;j--){const k=Math.max(0,e-j*.045),r=26-j*2;spr(j?YS:HOT,lerp(s.from.x,s.to.x,k),lerp(s.from.y,s.to.y,k),r,r,(j?.3:.95)*(1-j/9))}}
+  const q=(tau-T.p+.04)/.8;
+  if(q>0&&q<1){const a=Math.pow(1-q,1.6),wd=lerp(30,(pg.x1-pg.x0)*.55,1-Math.pow(1-q,3));
+    spr(YS,lerp(s.to.x,pg.pcx,q*.6),s.to.y-4,wd,22+20*q,.7*a);spr(HOT,s.to.x,s.to.y,26*(1-q*.5),18*(1-q*.5),.85*a)}
+}
+
+const nrm=s=>{const a=at(s-4),b=at(s+4),dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1;return[dy/l,-dx/l]}; // outward
+function drawComets(t){
+  // a pool of light gliding at a steady pace on a fixed track; head and tail are one continuous, tapering glow
+  const R=G.bh*.07,tl=perimC*.26,N=170,sp=perimC/16;
+  for(let k=0;k<2;k++){
+    const sh=t*sp+k*perimC*.5,fk=.92+.08*Math.sin(t*2.1+k*3);
+    for(let j=N;j>=0;j--){
+      const u=j/N,p=atC(sh-u*tl),r=R*(1-.72*u)*(1+.55*Math.exp(-u/.06));
+      spr(YS,p[0],p[1],r,r,(.085*Math.pow(1-u,1.4)+.16*Math.exp(-u/.045))*fk);
+    }
+    const h=atC(sh);spr(HOT,h[0],h[1],R*.65,R*.65,.75*fk);
+    for(let m=0;m<6;m++){ // a few sparkles shed from the tail
+      const life=1.4,ph=(t/life+m/6+k*.4)%1,seed=Math.floor(t/life+m/6+k*.4)*17+m*5+k*77,u=.12+.6*hsh(seed,1);
+      const q=atC(sh-u*tl),qn=nrmC(sh-u*tl),dr=(hsh(seed,2)-.5)*R*1.4+ph*R*.6,tw=Math.sin(ph*Math.PI);
+      spr(HOT,q[0]+qn[0]*dr,q[1]+qn[1]*dr,R*.15,R*.15,.6*tw);
+    }
+  }
+}
+function drawStreaks(t){
+  if(!OPT.streaks)return;
+  if(OPT.comet)return drawComets(t);
+  // two thick, playful ribbons of light: they ripple in and out from the book's edge,
+  // swell and thin along their length, and shed a few drifting sparkles from the tail
+  const R=G.bh*.075,tl=perim*.34,N=135;
+  for(let k=0;k<2;k++){
+    const sp=perim/16*(1+.18*Math.sin(t*.37+k*1.7)); // speed wanders slightly
+    const sh=t*perim/16+k*perim*.5+perim*.04*Math.sin(t*.11+k*2)+perim*.015*Math.sin(t*.37+k*1.7),fk=.9+.1*Math.sin(t*2.1+k*3);
+    for(let j=N;j>=0;j--){
+      const u=j/N,sAt=sh-u*tl,p=at(sAt),n=nrm(sAt);
+      const wv=R*(.3+.34*(.5+.5*Math.sin(u*Math.PI*3.2-t*2.6+k*2))*(.4+u)), // ripple travels down the ribbon, always outside the page edge
+            sw=1+.28*Math.sin(u*Math.PI*5+t*1.9+k),                 // swelling width
+            x=p[0]+n[0]*wv,y=p[1]+n[1]*wv,a=ss(-.01,.09,u)*Math.pow(1-u,1.1)*fk,r=R*(1-.5*u)*sw;
+      spr(STK,x,y,r,r,.24*a);
+    }
+    // sparkles that peel off the tail and drift outward
+    for(let m=0;m<14;m++){
+      const life=1.6,ph=(t/life+m/14+k*.37)%1,seed=Math.floor(t/life+m/14+k*.37)*31+m*7+k*101;
+      const u=.15+.75*hsh(seed,1),sAt=sh-u*tl,p=at(sAt),n=nrm(sAt),dr=(.4+ph*2.4)*R*(.6+hsh(seed,2)*.8);
+      const tw=Math.max(0,Math.sin(ph*Math.PI))*(.6+.4*Math.sin(t*9+m)),r=R*(.08+.1*hsh(seed,3));
+      spr(HOT,p[0]+n[0]*dr+Math.sin(t*1.3+m)*R*.3,p[1]+n[1]*dr+Math.cos(t*1.1+m)*R*.3,r,r,.75*tw*(1-u*.6));
+    }
+  }
+}
+
+function sd(pg){ // signed distance; the seam side doesn't count as an edge when inside
+  const dx=Math.max(pg.x0-B.x,0,B.x-pg.x1),dy=Math.max(pg.top-B.y,0,B.y-pg.bot);
+  if(dx||dy)return Math.hypot(dx,dy);
+  const outer=pg.side<0?B.x-pg.x0:pg.x1-B.x;
+  return -Math.min(outer,B.y-pg.top,pg.bot-B.y);
+}
+
+function frame(ms){
+  requestAnimationFrame(frame);if(!ready)return;
+  try{frameNow(ms)}catch(e){console.error(e)}
+}
+function frameNow(ms){
+  const t=ms/1000,dt=Math.min(.05,last?t-last:.016);last=t;DT=dt;
+  const k=1-Math.exp(-dt*16);B.x+=(M.x-B.x)*k;B.y+=(M.y-B.y)*k;
+  B.vis+=((M.in?1:0)-B.vis)*(1-Math.exp(-dt*6));
+  B.trail.unshift([B.x,B.y]);if(B.trail.length>14)B.trail.length=14;
+
+  const kk=1-Math.exp(-dt*4.5);
+  if(MODE==='mouse'){ // test shortcut: the pointer stands in for a floor blob
+    const d=pages.map(sd);let cand=d[0]<d[1]?0:1;
+    if(act!=null&&cand!==act&&Math.abs(d[0]-d[1])<28)cand=act;
+    if(!M.in||Math.min(d[0],d[1])>260)cand=null;act=cand;
+    PROX+=((M.in?ss(320,-60,Math.min(d[0],d[1])):0)-PROX)*(1-Math.exp(-dt*3));
+    pages.forEach((pg,i)=>{if(keepPreview(pg,t))return;const on=i===act&&!COL;/* no hover preview while the collator comparison runs */pg.p1+=((on?ss(200,30,d[i]):0)-pg.p1)*kk;pg.p2+=((on?ss(25,-75,d[i]):0)-pg.p2)*kk});
+  }else{ // Unity / test panel: per-page proximity in floor space
+    const q=IN.prox;let cand=q[0]>=q[1]?0:1;
+    if(act!=null&&cand!==act&&Math.abs(q[0]-q[1])<PREVIEW.switchMargin)cand=act;
+    if(Math.max(q[0],q[1])<.01)cand=null;act=cand;
+    PROX+=(Math.max(q[0],q[1])-PROX)*(1-Math.exp(-dt*3));
+    pages.forEach((pg,i)=>{if(keepPreview(pg,t))return;const on=(PREVIEW.onePage?i===act:q[i]>.01)&&!COL;
+      pg.p1+=((on?ss(PREVIEW.s1from,PREVIEW.s1to,q[i]):0)-pg.p1)*kk;pg.p2+=((on?ss(PREVIEW.s2from,PREVIEW.s2to,q[i]):0)-pg.p2)*kk});
+  }
+  reportState(t);
+
+  let dim=1;
+  for(const pg of pages)if(pg.st){const tau=t-pg.st.t0;
+    if(tau<T.p)dim=Math.min(dim,1-.8*eio(tau/T.p));else if(tau<T.p+.7)dim=Math.min(dim,.2+.8*ss(T.p,T.p+.7,tau))}
+
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+  const pu=.5+.5*Math.sin(t*1.5); // slow pulse of the glowing binding
+  ctx.drawImage(OPT.cover?stat:statOff,0,0,W,H);
+  if(OPT.cover){ // the binding glows brighter the closer the light gets to the book
+    let g=lerp(.1+.3*pu,2.2+.6*pu,PROX*PROX*(3-2*PROX));ctx.globalCompositeOperation='lighter';
+    while(g>.01){ctx.globalAlpha=Math.min(1,g);ctx.drawImage(glowL,0,0,W,H);g-=1}
+    ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over'}
+  collate(t);
+  for(const pg of pages)drawPage(pg,t);
+  ctx.globalCompositeOperation='lighter';
+  for(const pg of pages)drawPulse(pg,t);
+  drawStreaks(t);
+  const v=MODE==='mouse'?B.vis*dim:0; // the floating light dot is a mouse-test shortcut only
+  if(v>.01){B.trail.forEach((p,i)=>{if(i)spr(YS,p[0],p[1],22,22,.07*v*(1-i/14))});spr(YS,B.x,B.y,58,58,.32*v);spr(HOT,B.x,B.y,17,17,.95*v)}
+  ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+}
+
+function move(e){M.x=e.clientX;M.y=e.clientY;if(!M.in&&B.vis<.05){B.x=M.x;B.y=M.y}M.in=true}
+// A floor blob reached page i's destination. x = where along the page's bottom edge the light enters (0-1, optional).
+// Returns false if that page is still busy with its previous sequence.
+function arrive(i,x){
+  const pg=pages[i];if(!ready||!pg||pg.st)return false;
+  const ex=lerp(pg.x0+24,pg.x1-24,x==null?.5:cl(+x||0)),by=G.botY(ex);
+  pg.st={c0:waitC0(),t0:performance.now()/1000,from:{x:ex,y:Math.min(H+20,by+G.bh*.28)},to:{x:ex,y:by}};
+  sendState(true);return true;
+}
+// While a page is absorbing a blob, keep the preview words it was already showing lit
+// until the rising yellow wave has passed them, so the hint grows straight into the reveal.
+const keepPreview=(pg,t)=>!!pg.st&&t-pg.st.t0<T.s1+.15;
+// Page state for Unity: idle / revealing / holding / covering.
+function pageState(pg,t){const s=pg.st;if(!s)return'idle';const tau=t-s.t0;return tau<T.r1?'revealing':tau<s.c0?'holding':'covering'}
+let lastStateKey='';
+function reportState(t){const k=pages.map(pg=>pageState(pg,t)).join(',')+','+!!COL;if(k!==lastStateKey){lastStateKey=k;sendState()}}
+addEventListener('pointermove',e=>{if(MODE==='mouse')move(e)});
+addEventListener('pointerdown',e=>{
+  if(MODE!=='mouse'||e.target!==cv)return;
+  move(e);if(!ready)return;
+  for(const pg of pages){
+    if(pg.st||!hit.isPointInPath(pg.path,e.clientX,e.clientY))continue;
+    const x=cl(e.clientX,pg.x0+24,pg.x1-24);
+    pg.st={c0:waitC0(),t0:performance.now()/1000,from:{x:B.x,y:B.y},to:{x,y:G.botY(x)}};
+  }
+});
+document.addEventListener('pointerleave',()=>{M.in=false});
+addEventListener('blur',()=>{M.in=false});
+let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{if(layout())ready=true},120)});
+if(window.ResizeObserver)new ResizeObserver(()=>{if(!ready&&layout())ready=true}).observe(document.documentElement);
+
+// ---- connection to Unity ----
+let ws=null,wsOpen=false;
+function sendState(){
+  if(!ws||!wsOpen||!pages.length)return;
+  const t=performance.now()/1000;
+  try{ws.send(JSON.stringify({type:'state',left:pageState(pages[0],t),right:pageState(pages[1],t),collator:!!COL}))}catch(e){}
+}
+function handle(msg){
+  let m;try{m=typeof msg==='string'?JSON.parse(msg):msg}catch(e){return}
+  if(!m||!m.type)return;
+  if(m.type==='proximity'){IN.prox[0]=cl(+m.left||0);IN.prox[1]=cl(+m.right||0)}
+  else if(m.type==='arrive'){const i=m.page==='right'?1:0,ok=arrive(i,m.x);
+    if(ws&&wsOpen)try{ws.send(JSON.stringify({type:'arrived',page:i?'right':'left',accepted:ok}))}catch(e){}}
+}
+function connect(){
+  try{ws=new WebSocket(WS_URL)}catch(e){setTimeout(connect,1000);return}
+  ws.onopen=()=>{wsOpen=true;console.log('[book] connected to Unity');try{ws.send(JSON.stringify({type:'hello',from:'book'}))}catch(e){};lastStateKey=''};
+  ws.onmessage=e=>handle(e.data);
+  ws.onclose=()=>{if(wsOpen)console.log('[book] Unity disconnected - waiting for it to come back');wsOpen=false;IN.prox[0]=IN.prox[1]=0;setTimeout(connect,1000)};
+  ws.onerror=()=>{};
+}
+if(MODE==='unity')connect();
+// For scripted testing: window.wallBook.setProximity('left',0.5) / .arrive('right')
+window.wallBook={setProximity:(p,v)=>{IN.prox[p==='right'?1:0]=cl(+v||0)},arrive:(p,x)=>arrive(p==='right'?1:0,x),
+  state:()=>{const t=performance.now()/1000;return{left:pageState(pages[0],t),right:pageState(pages[1],t),collator:!!COL,mode:MODE,connected:wsOpen}},handle};
+if(MODE==='test'){
+  const $=id=>document.getElementById(id),tp=$('tp');tp.classList.add('on');document.body.style.cursor='default';cv.style.cursor='default';
+  const bind=(sl,out,i)=>{$(sl).oninput=e=>{IN.prox[i]=+e.target.value;$(out).textContent=IN.prox[i].toFixed(2)}};
+  bind('tpL','tpLo',0);bind('tpR','tpRo',1);
+  $('tpLa').onclick=()=>{if(!arrive(0))$('tpS').textContent='Left page busy'};$('tpRa').onclick=()=>{if(!arrive(1))$('tpS').textContent='Right page busy'};
+  setInterval(()=>{if(!pages.length)return;const st=window.wallBook.state();$('tpS').textContent='left: '+st.left+' · right: '+st.right+(st.collator?' · comparing':'')},250);
+}
+const go=()=>{if(layout())ready=true;else setTimeout(go,250)};
+if(document.fonts)document.fonts.load('400 40px "EB Garamond"').then(f=>{if(!f.length)console.warn('EB Garamond not found in ./fonts - using a fallback serif')}).catch(()=>{});
+const fl=document.fonts?Promise.race([document.fonts.load(`400 40px "EB Garamond"`),new Promise(r=>setTimeout(r,2500))]):Promise.resolve();
+fl.then(go,go);
+requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
