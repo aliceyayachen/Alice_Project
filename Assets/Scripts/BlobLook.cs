@@ -171,6 +171,16 @@ public class BlobLook : MonoBehaviour
             Bounce(new Vector2(0f, 1f), -lastVelocity.y);
     }
 
+    /// <summary>Jelly squash from outside, e.g. when FloorBlob bumps into another blob.</summary>
+    public void Bump(Vector2 normal, float impact)
+    {
+        if (Time.time - lastBumpTime < 0.25f) return; // one squash per bump, not every frame of contact
+        lastBumpTime = Time.time;
+        Bounce(normal, Mathf.Min(impact, 3f));
+    }
+
+    private float lastBumpTime = -1f;
+
     private void Bounce(Vector2 normal, float impact)
     {
         squashAngle = Mathf.Atan2(normal.y, normal.x);

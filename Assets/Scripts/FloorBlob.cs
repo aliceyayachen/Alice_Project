@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class FloorBlob : MonoBehaviour
@@ -25,6 +26,12 @@ public class FloorBlob : MonoBehaviour
     [Tooltip("Seconds after a push during which the blob is allowed to reach the wall.")]
     [SerializeField, Min(0f)] private float pushMemory = 2f;
 
+    [Header("Bumping into other blobs")]
+    [Tooltip("How close two blob centres can get before they bounce off each other (floor units). Roughly the blob's visible radius.")]
+    [SerializeField, Min(0f)] private float bumpRadius = 0.55f;
+    [Tooltip("How much of a fast blob's speed is passed on to the blob it hits (0 = none, 1 = all).")]
+    [SerializeField, Range(0f, 1f)] private float bumpTransfer = 0.7f;
+
     [Header("Lab Tracking (leave empty on laptop)")]
     [SerializeField] private Transform calibratedDot;
     [SerializeField] private Renderer calibratedDotRenderer;
@@ -36,6 +43,10 @@ public class FloorBlob : MonoBehaviour
     private Vector3 visitorVelocity;
     private float lastPushTime = -999f;
     private float wanderPhase;
+    private BlobLook look;
+
+    // Every blob that is currently moving on the floor (hidden / absorbed blobs are not in here).
+    private static readonly List<FloorBlob> active = new List<FloorBlob>();
 
     /// <summary>True if a visitor pushed this blob within the last Push Memory seconds.</summary>
     public bool RecentlyPushed => Time.time - lastPushTime <= pushMemory;
@@ -44,6 +55,25 @@ public class FloorBlob : MonoBehaviour
     {
         speed = driftSpeed;
         wanderPhase = Random.Range(0f, 100f); // each blob meanders differently
+        look = GetComponent<BlobLook>();
+    }
+
+    // Runs at the start, and every time the blob comes back after being absorbed:
+    // a fresh random direction, so blobs don't end up travelling together as a group.
+    private void OnEnable()
+    {
+        if (!active.Contains(this)) active.Add(this);
+        float angle = Random.Range(0f, Mathf.PI * 2f);
+        direction = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+        speed = driftSpeed;
+        wanderPhase = Random.Range(0f, 100f);
+        lastVisitor = null;
+        visitorVelocity = Vector3.zero;
+    }
+
+    private void OnDisable()
+    {
+        active.Remove(this);
     }
 
     private void Update()
@@ -115,6 +145,7 @@ public class FloorBlob : MonoBehaviour
         }
 
         position += direction * speed * dt;
+        BumpOtherBlobs(ref position);
 
         Bounds bounds = floor.bounds;
         float minX = bounds.min.x + edgePadding;
@@ -178,5 +209,41 @@ public class FloorBlob : MonoBehaviour
         float a = turn * dt;
         float c = Mathf.Cos(a), s = Mathf.Sin(a);
         direction = new Vector3(direction.x * c - direction.z * s, 0f, direction.x * s + direction.z * c).normalized;
+    }
+
+    // Blobs don't float over each other: if two get too close, they move apart and bounce off.
+    // A fast (pushed) blob passes some of its speed on, so you can knock one blob with another,
+    // and the knocked blob counts as pushed too (it may reach the wall).
+    private void BumpOtherBlobs(ref Vector3 position)
+    {
+        if (bumpRadius <= 0f) return;
+        foreach (FloorBlob other in active)
+        {
+            if (other == this || other.bumpRadius <= 0f) continue;
+            Vector3 d = position - other.transform.position;
+            d.y = 0f;
+            float minDistance = bumpRadius + other.bumpRadius;
+            float distance = d.magnitude;
+            if (distance >= minDistance) continue;
+
+            Vector3 normal = distance > 0.0001f ? d / distance : new Vector3(direction.z, 0f, -direction.x);
+            position += normal * ((minDistance - distance) * 0.5f); // move apart (the other blob does its half)
+
+            if (Vector3.Dot(direction, normal) < 0f)                // heading into it: bounce off
+            {
+                direction = Vector3.Reflect(direction, normal);
+                direction.y = 0f;
+                direction.Normalize();
+            }
+
+            if (other.speed > speed)                                // knocked by a faster blob
+            {
+                speed = Mathf.Max(speed, other.speed * bumpTransfer);
+                if (other.RecentlyPushed) lastPushTime = Mathf.Max(lastPushTime, other.lastPushTime);
+                direction = normal;
+            }
+
+            if (look != null) look.Bump(new Vector2(normal.x, normal.z), Mathf.Max(speed, other.speed));
+        }
     }
 }
