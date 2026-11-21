@@ -19,6 +19,13 @@ public class CalibratedVisitors : MonoBehaviour
     [SerializeField] private bool showMarkers = true;
     [SerializeField, Min(0.02f)] private float markerSize = 0.2f;
 
+    [Header("Smoothing (camera jitter)")]
+    [Tooltip("How quickly the visitor follows the tracked position, in seconds. Higher = smoother but a little laggy. 0 = no smoothing.")]
+    [SerializeField, Min(0f)] private float smoothTime = 0.15f;
+    [Tooltip("A sudden jump bigger than this (floor units) is ignored unless it lasts longer than Jump Confirm Time (tracking glitches).")]
+    [SerializeField, Min(0.1f)] private float maxJump = 1.5f;
+    [SerializeField, Min(0f)] private float jumpConfirmTime = 0.3f;
+
     [Header("Live readout (Play Mode)")]
     [SerializeField] private bool calibrationLoaded;
     [SerializeField] private string calibrationInfo = "";
@@ -28,6 +35,8 @@ public class CalibratedVisitors : MonoBehaviour
     private readonly Dictionary<Transform, Transform> markers = new Dictionary<Transform, Transform>();
     private readonly List<Transform> gone = new List<Transform>();
     private readonly HashSet<GameObject> ownMarkers = new HashSet<GameObject>();
+    private readonly Dictionary<Transform, float> jumpTimers = new Dictionary<Transform, float>();
+    private readonly HashSet<Transform> placedOnce = new HashSet<Transform>();
 
     private void Start()
     {
@@ -41,8 +50,9 @@ public class CalibratedVisitors : MonoBehaviour
         }
         else
         {
+            TrackedBody.UseHips = calibration.usedHips; // read the same body part the calibration used
             calibrationInfo = "Saved " + calibration.savedAt + ", " + calibration.pointsUsed + " dots, average error " +
-                              Mathf.RoundToInt(calibration.averageError * 100f) + " cm";
+                              calibration.averageError.ToString("0.00") + " floor units";
             Debug.Log("CalibratedVisitors: loaded calibration (" + calibrationInfo + ")", this);
         }
     }
@@ -69,7 +79,7 @@ public class CalibratedVisitors : MonoBehaviour
             if (raw == null) { gone.Add(raw); continue; }
             bool present = raw.gameObject.activeInHierarchy;
             marker.gameObject.SetActive(present);
-            if (present) marker.position = calibration.Map(raw.position);
+            if (present) MoveSmoothly(marker, calibration.Map(TrackedBody.FloorPoint(raw))); // corrected, then smoothed
         }
         foreach (Transform raw in gone)
         {
@@ -78,9 +88,35 @@ public class CalibratedVisitors : MonoBehaviour
                 ownMarkers.Remove(markers[raw].gameObject);
                 Destroy(markers[raw].gameObject);
             }
+            jumpTimers.Remove(markers[raw]); placedOnce.Remove(markers[raw]);
             markers.Remove(raw);
         }
         visitorsTracked = markers.Count;
+        if (gone.Count > 0) TrackedBody.Tidy();
+    }
+
+    // Glides toward the new position (hides jitter) and ignores short glitches where the
+    // tracking jumps far away for a moment.
+    private void MoveSmoothly(Transform marker, Vector3 target)
+    {
+        if (!placedOnce.Contains(marker)) { marker.position = target; placedOnce.Add(marker); return; }
+
+        Vector3 current = marker.position;
+        float jump = Vector2.Distance(new Vector2(current.x, current.z), new Vector2(target.x, target.z));
+        if (jump > maxJump)
+        {
+            jumpTimers.TryGetValue(marker, out float t);
+            t += Time.deltaTime;
+            jumpTimers[marker] = t;
+            if (t < jumpConfirmTime) return;            // probably a glitch: stay put for now
+            marker.position = target;                    // it lasted: the person really is there
+            jumpTimers[marker] = 0f;
+            return;
+        }
+        jumpTimers[marker] = 0f;
+
+        float k = smoothTime <= 0f ? 1f : 1f - Mathf.Exp(-Time.deltaTime / smoothTime);
+        marker.position = Vector3.Lerp(current, target, k);
     }
 
     private Transform MakeMarker(string rawName)

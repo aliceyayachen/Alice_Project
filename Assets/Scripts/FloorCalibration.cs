@@ -24,6 +24,7 @@ public class FloorCalibration
     public int pointsUsed;
     public float averageError;   // metres (floor units)
     public float worstError;
+    public bool usedHips;        // which body part the calibration was made with
 
     public bool IsIdentity => h[0] == 1 && h[1] == 0 && h[2] == 0 && h[3] == 0 && h[4] == 1 && h[5] == 0 && h[6] == 0 && h[7] == 0;
 

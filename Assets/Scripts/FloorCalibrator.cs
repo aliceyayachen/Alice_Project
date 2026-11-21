@@ -28,6 +28,10 @@ public class FloorCalibrator : MonoBehaviour
     [Tooltip("How far in from the floor's edges the outer dots are (floor units).")]
     [SerializeField, Min(0f)] private float inset = 0.6f;
 
+    [Header("Which part of the body to read")]
+    [Tooltip("ON: read the hips (steadier, works when feet are hidden or far away). OFF: read between the feet.")]
+    [SerializeField] private bool useHips = true;
+
     [Header("Holding still")]
     [Tooltip("Seconds to stand still on each dot.")]
     [SerializeField, Min(0.3f)] private float holdTime = 2f;
@@ -56,6 +60,16 @@ public class FloorCalibrator : MonoBehaviour
     [SerializeField] private int currentDot;
     [SerializeField] private float averageError;
     [SerializeField] private float worstError;
+    [Tooltip("Where the camera sees the person RIGHT NOW (X, Z). Walk around and watch it: it should change smoothly, by about as far as you walk.")]
+    [SerializeField] private Vector2 trackedNow;
+    [SerializeField] private int peopleSeenNow;
+    [SerializeField] private string bodyPartRead = "";
+
+    [Header("Walk test (for checking the camera)")]
+    [Tooltip("Writes where the camera sees you to the Console twice a second, so you can walk around and read it afterwards.")]
+    [SerializeField] private bool logTrackedPosition;
+    [Tooltip("Also show the camera's numbers on the floor, next to the dot.")]
+    [SerializeField] private bool showNumbersOnFloor = true;
 
     private readonly List<Vector2> targets = new List<Vector2>();
     private readonly List<Vector2> captured = new List<Vector2>();
@@ -73,6 +87,7 @@ public class FloorCalibrator : MonoBehaviour
     private TextMesh floorText;
     private string floorMessage = "";
     private Vector2 floorMessageAt;
+    private float nextLogTime;
 
     private void Start()
     {
@@ -112,7 +127,16 @@ public class FloorCalibrator : MonoBehaviour
         if (KeyDown(KeyCode.R)) Restart();
         if (KeyDown(KeyCode.Backspace)) RedoPrevious();
 
+        TrackedBody.UseHips = useHips;
         Vector2? tracked = TrackedPosition(out int peopleSeen);
+        peopleSeenNow = peopleSeen;
+        if (tracked.HasValue) { trackedNow = tracked.Value; bodyPartRead = TrackedBody.LastPartUsed; }
+        if (logTrackedPosition && Time.time >= nextLogTime)
+        {
+            nextLogTime = Time.time + 0.5f;
+            Debug.Log("Walk test: " + (tracked.HasValue ? "tracked " + tracked.Value.ToString("F2") : "nobody seen") +
+                      ", people " + peopleSeen + ", reading " + TrackedBody.LastPartUsed, this);
+        }
 
         // CHECK mode: show where the calibrated position lands.
         if (result != null)
@@ -152,14 +176,17 @@ public class FloorCalibrator : MonoBehaviour
             FloorMessage(DotLabel() + "  walk here" + (peopleSeen > 1 ? "  (2+ people!)" : ""));
             ResetHold();
         }
-        else if (!still)
+        else if ((holdCount == 0 && !still) || (holdCount > 0 && WalkedOff()))
         {
+            // Not started yet and still moving, or really walked away mid-countdown.
             status = "Dot " + (currentDot + 1) + "/" + targets.Count + ": stand on the dot and hold still." + extra;
             FloorMessage(DotLabel() + "  stand still" + (peopleSeen > 1 ? "  (2+ people!)" : ""));
             ResetHold();
         }
         else
         {
+            // Once the countdown has started, tracking jitter doesn't interrupt it: it only stops
+            // if you actually walk off (see WalkedOff). The jitter is averaged out.
             holdTimer += Time.deltaTime;
             holdSum += tracked.Value;
             holdCount++;
@@ -204,7 +231,7 @@ public class FloorCalibrator : MonoBehaviour
         List<float> errors = Errors(c, captured, targets);
         List<float> sorted = new List<float>(errors);
         sorted.Sort();
-        float limit = Mathf.Max(0.15f, sorted[sorted.Count / 2] * 3f);
+        float limit = Mathf.Max(0.03f * Mathf.Max(floor.bounds.size.x, floor.bounds.size.z), sorted[sorted.Count / 2] * 3f);
         var keepTracked = new List<Vector2>();
         var keepTargets = new List<Vector2>();
         var dropped = new List<int>();
@@ -230,9 +257,11 @@ public class FloorCalibrator : MonoBehaviour
         {
             sum += errors[i];
             worst = Mathf.Max(worst, errors[i]);
-            // Each dot's colour shows its error: bright = good, red = off by 10 cm or more.
-            SetColor(dots[i], Color.Lerp(new Color(0.5f, 1f, 0.6f), new Color(1f, 0.3f, 0.25f), Mathf.InverseLerp(0.03f, 0.1f, errors[i])));
+            // Each dot's colour shows its error: green = good (under 1% of the floor), red = 5% or more.
+            float floorLength = Mathf.Max(floor.bounds.size.x, floor.bounds.size.z);
+            SetColor(dots[i], Color.Lerp(new Color(0.5f, 1f, 0.6f), new Color(1f, 0.3f, 0.25f), Mathf.InverseLerp(0.01f, 0.05f, errors[i] / floorLength)));
         }
+        c.usedHips = useHips;
         c.averageError = averageError = sum / errors.Count;
         c.worstError = worstError = worst;
 
@@ -254,6 +283,19 @@ public class FloorCalibrator : MonoBehaviour
         if (result != null || currentDot >= targets.Count) return;
         Vector2? tracked = TrackedPosition(out _);
         if (tracked.HasValue) Capture(tracked.Value);
+    }
+
+    [ContextMenu("Show what's inside the tracked person (Console)")]
+    private void DescribeTrackedPerson()
+    {
+        GameObject[] players = GameObject.FindGameObjectsWithTag("Player");
+        if (players.Length == 0) { Debug.Log("FloorCalibrator: nobody tagged Player right now.", this); return; }
+        foreach (GameObject p in players)
+        {
+            TrackedBody.FloorPoint(p.transform);
+            Debug.Log("FloorCalibrator: tracked object '" + p.name + "' - reading " + TrackedBody.LastPartUsed +
+                      "\n" + TrackedBody.DescribeHierarchy(p.transform), this);
+        }
     }
 
     [ContextMenu("Start again")]
@@ -301,6 +343,19 @@ public class FloorCalibrator : MonoBehaviour
         holdCount = 0;
     }
 
+    // During the countdown: have you actually walked off? Compares where you've been in the last
+    // ~0.4 s with the average since the countdown started. Jitter stays well inside this.
+    private bool WalkedOff()
+    {
+        Vector2 holdAverage = holdSum / holdCount;
+        Vector2 lately = Vector2.zero;
+        int n = 0;
+        float now = Time.time;
+        for (int i = recent.Count - 1; i >= 0 && now - recent[i].time < 0.4f; i--) { lately += recent[i].pos; n++; }
+        if (n == 0) return false;
+        return Vector2.Distance(lately / n, holdAverage) > stillRadius * 2.5f;
+    }
+
     // "Still" = your AVERAGE position isn't drifting, even if the tracking jitters around it.
     // Compares the average of the older half of the last second with the newer half.
     private bool IsStill()
@@ -322,18 +377,20 @@ public class FloorCalibrator : MonoBehaviour
         count = players.Length;
         if (count == 0) return null;
         // With several, use the one nearest the last tracked spot.
-        Transform best = players[0].transform;
+        // Where the body actually is (between the feet), not the avatar's top object.
+        Vector3 best = TrackedBody.FloorPoint(players[0].transform);
         if (count > 1 && recent.Count > 0)
         {
             Vector2 last = recent[recent.Count - 1].pos;
             float bestD = float.MaxValue;
             foreach (GameObject p in players)
             {
-                float d = Vector2.Distance(new Vector2(p.transform.position.x, p.transform.position.z), last);
-                if (d < bestD) { bestD = d; best = p.transform; }
+                Vector3 at = TrackedBody.FloorPoint(p.transform);
+                float d = Vector2.Distance(new Vector2(at.x, at.z), last);
+                if (d < bestD) { bestD = d; best = at; }
             }
         }
-        return new Vector2(best.position.x, best.position.z);
+        return new Vector2(best.x, best.z);
     }
 
     private GameObject MakeDisc(string objectName, Vector2 at, float size, Color color)
@@ -367,7 +424,12 @@ public class FloorCalibrator : MonoBehaviour
         catch (System.InvalidOperationException) { keysUnavailable = true; return false; }
     }
 
-    private static string Cm(float metres) => Mathf.RoundToInt(metres * 100f) + " cm";
+    // Errors are in floor units (your floor isn't 1 unit = 1 metre), so also give them as % of the floor's length.
+    private string Cm(float units)
+    {
+        float length = floor != null ? Mathf.Max(floor.bounds.size.x, floor.bounds.size.z) : 1f;
+        return units.ToString("0.00") + " (" + Mathf.RoundToInt(units / length * 100f) + "%)";
+    }
 
     private string DotLabel() => (currentDot + 1) + "/" + targets.Count;
 
@@ -377,7 +439,9 @@ public class FloorCalibrator : MonoBehaviour
         floorMessage = message;
         floorMessageAt = at ?? (currentDot < targets.Count ? targets[currentDot] : floorMessageAt);
         if (floorText == null) return;
-        floorText.text = message;
+        floorText.text = showNumbersOnFloor && peopleSeenNow > 0
+            ? message + "\n(" + trackedNow.x.ToString("0.00") + ", " + trackedNow.y.ToString("0.00") + ")"
+            : message;
 
         // Put it just "below" the dot as seen by the floor camera, reading the right way up.
         Vector3 up = FloorUp();
