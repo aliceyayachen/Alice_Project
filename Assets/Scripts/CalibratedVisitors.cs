@@ -17,6 +17,8 @@ public class CalibratedVisitors : MonoBehaviour
     [SerializeField] private string fileName = FloorCalibration.DefaultFileName;
     [Tooltip("Show a small dot at each corrected position (handy for checking; switch off for the exhibition).")]
     [SerializeField] private bool showMarkers = true;
+    [Tooltip("Hide the ZED avatars (the 3D people / rig) so they don't show in the projection. Tracking keeps working.")]
+    [SerializeField] private bool hideTrackedBodies = true;
     [SerializeField, Min(0.02f)] private float markerSize = 0.2f;
 
     [Header("Smoothing (camera jitter)")]
@@ -30,6 +32,9 @@ public class CalibratedVisitors : MonoBehaviour
     [SerializeField] private bool calibrationLoaded;
     [SerializeField] private string calibrationInfo = "";
     [SerializeField] private int visitorsTracked;
+    [Tooltip("How many drawn parts of the tracked body are being hidden, and on which object (for checking).")]
+    [SerializeField] private int bodiesHiddenParts;
+    [SerializeField] private string bodyObjectName = "";
 
     private FloorCalibration calibration;
     private readonly Dictionary<Transform, Transform> markers = new Dictionary<Transform, Transform>();
@@ -78,6 +83,7 @@ public class CalibratedVisitors : MonoBehaviour
             Transform raw = pair.Key, marker = pair.Value;
             if (raw == null) { gone.Add(raw); continue; }
             bool present = raw.gameObject.activeInHierarchy;
+            if (present) SetBodyVisible(raw, !hideTrackedBodies);
             marker.gameObject.SetActive(present);
             if (present) MoveSmoothly(marker, calibration.Map(TrackedBody.FloorPoint(raw))); // corrected, then smoothed
         }
@@ -117,6 +123,41 @@ public class CalibratedVisitors : MonoBehaviour
 
         float k = smoothTime <= 0f ? 1f : 1f - Mathf.Exp(-Time.deltaTime / smoothTime);
         marker.position = Vector3.Lerp(current, target, k);
+    }
+
+    // Runs after the ZED has updated its avatars this frame, so it can't switch them back on afterwards.
+    private void LateUpdate()
+    {
+        foreach (var pair in markers)
+            if (pair.Key != null && pair.Key.gameObject.activeInHierarchy) SetBodyVisible(pair.Key, !hideTrackedBodies);
+    }
+
+    // Only switches the avatar's drawing on/off; its bones still move, so tracking is unaffected.
+    // The object tagged Player can sit INSIDE the avatar, so start from the avatar's top (its Animator).
+    private static readonly List<Renderer> renderersBuffer = new List<Renderer>();
+    private void SetBodyVisible(Transform raw, bool visible)
+    {
+        Transform top = raw;
+        Animator animator = raw.GetComponentInParent<Animator>();
+        if (animator != null)
+        {
+            top = animator.transform;
+            // Keep the avatar moving while it's invisible. By default Unity stops animating a character
+            // nobody can see, which would freeze the hips we track.
+            if (animator.cullingMode != AnimatorCullingMode.AlwaysAnimate) animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        }
+        top.GetComponentsInChildren(true, renderersBuffer);
+        if (renderersBuffer.Count == 0 && top.parent != null && top.parent.GetComponent<Animator>() == null)
+            top.parent.GetComponentsInChildren(true, renderersBuffer); // mesh sits next to the rig, not under it
+        int n = 0;
+        foreach (Renderer r in renderersBuffer)
+        {
+            if (ownMarkers.Contains(r.gameObject)) continue;
+            if (r.enabled != visible) r.enabled = visible;
+            n++;
+        }
+        bodiesHiddenParts = visible ? 0 : n;
+        bodyObjectName = top.name;
     }
 
     private Transform MakeMarker(string rawName)
